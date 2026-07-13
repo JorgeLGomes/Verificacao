@@ -16,6 +16,14 @@ janelas_precip: [12, 0]
 # prazos (horas) para os campos instantaneos vs ERA5
 leads_horas: [24, 48, 72, 96, 120, 144, 168, 192, 216]
 
+# mapas espaciais: media diaria por dia de previsao (prazo), separada por mes
+# (colunas Todo periodo / Jan / Fev / Mar ...). Cuidado com memoria/tamanho do
+# binario em grades grandes: restrinja 'leads' se necessario.
+mapas:
+  ativar: true
+  leads: null        # null = todos os prazos; ou lista, ex.: [1, 3, 5, 7]
+  por_mes: true      # true = separa por mes + Todo; false = so Todo periodo
+
 regioes:
   # caixas das 4 regioes do relatorio (aproximadas; ajuste se tiver as oficiais)
   caixas_br:

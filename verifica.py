@@ -144,6 +144,24 @@ def campos_instantaneos(arq, spec, leads_horas, init, reader="netcdf"):
 
 
 # ==========================================================================
+# MAPAS ESPACIAIS: media diaria por (modelo, prazo, mes)
+# ==========================================================================
+def _quer_mapa(cfg, lead):
+    mc = cfg.get("mapas", {}) or {}
+    if not mc.get("ativar", True):
+        return False
+    leads = mc.get("leads")
+    return (leads is None) or (lead in leads)
+
+
+def _rotulo_mes(cfg, valido):
+    mc = cfg.get("mapas", {}) or {}
+    if not mc.get("por_mes", True):
+        return 0                       # 0 = agrega todo o periodo
+    return int(pd.Timestamp(valido).month)
+
+
+# ==========================================================================
 # COMPONENTE: PRECIPITACAO (acum24 + regioes + categoricas/fss)
 # ==========================================================================
 def _run_precip(cfg, comp, ref, masks, regioes, modelo, run,
@@ -180,7 +198,9 @@ def _run_precip(cfg, comp, ref, masks, regioes, modelo, run,
             cat.setdefault((modelo, jw.lead), N.AccCategoria(limiares)).add(P, O)
         if quer_fss:
             fss.setdefault((modelo, jw.lead), N.AccFSS(limiares, escalas)).add(P, O)
-        mapas.setdefault(modelo, N.Mapas(ref.grade)).add(P, O)
+        if _quer_mapa(cfg, jw.lead):
+            mes = _rotulo_mes(cfg, jw.fim)
+            mapas.setdefault((modelo, jw.lead, mes), N.Mapas(ref.grade)).add(P, O)
 
 
 def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
@@ -212,7 +232,9 @@ def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
         for rg in regioes:
             mk = masks[rg]
             cont.setdefault((modelo, rg, ld), N.AccCont()).add_caso(P[mk], O[mk])
-        mapas.setdefault(modelo, N.Mapas(ref.grade)).add(P, O)
+        if _quer_mapa(cfg, ld):
+            mes = _rotulo_mes(cfg, valido)
+            mapas.setdefault((modelo, ld, mes), N.Mapas(ref.grade)).add(P, O)
 
 
 def _acumula_run(cfg, comp, ref, masks, regioes, modelo, run, max_lead,
@@ -300,11 +322,12 @@ def _empacota(comp, cont, cat, fssacc, mapas, ref):
                         for (mo, ld), a in cat.items() for r in a.scores()])
     dff = pd.DataFrame([dict(modelo=mo, lead=ld, **r)
                         for (mo, ld), a in fssacc.items() for r in a.scores()])
+    # mapas keyed por (modelo, lead, mes); arrays em float32 p/ binario menor
+    mp = {k: {"sp": v.sp.astype("float32"), "so": v.so.astype("float32"),
+              "n": v.n.astype("float32")} for k, v in mapas.items()}
     return dict(nome=comp["nome"], unidade=comp.get("unidade", ""),
                 tipo=comp["tipo"], continuas=dfc, categoricas=dfk, fss=dff,
-                mapas={m: {"sp": v.sp, "so": v.so, "sdif": v.sdif, "n": v.n}
-                       for m, v in mapas.items()},
-                grade={"lats": ref.lats, "lons": ref.lons})
+                mapas=mp, grade={"lats": ref.lats, "lons": ref.lons})
 
 
 # ==========================================================================

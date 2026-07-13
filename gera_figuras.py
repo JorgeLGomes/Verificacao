@@ -60,14 +60,33 @@ def figuras_componente(comp, saida):
                               f"{nome}: FSS (vizinhanca {esc} px) x limiar por prazo",
                               os.path.join(saida, f"fig_FSS_{nome}_{esc}px.png"))
 
+    # ---- mapas espaciais: media diaria por (modelo, prazo), colunas Todo/meses
     grade = comp.get("grade", {})
     difcmap = "BrBG" if comp.get("tipo") == "acum24" else "RdBu_r"
-    for modelo, arrs in comp.get("mapas", {}).items():
-        if np.asarray(arrs["n"]).sum() > 0:
-            N.plota_mapas(arrs, grade["lats"], grade["lons"], unidade,
-                          f"{nome} - {modelo} (grade da referencia)",
-                          os.path.join(saida, f"mapas_{nome}_{modelo}.png"),
-                          difcmap=difcmap)
+    mapas = comp.get("mapas", {})
+    chaves = list(mapas.keys())
+    if chaves and isinstance(chaves[0], tuple):
+        modelos = sorted({k[0] for k in chaves})
+        leads = sorted({k[1] for k in chaves})
+        for modelo in modelos:
+            for lead in leads:
+                pormes = {k[2]: mapas[k] for k in chaves
+                          if k[0] == modelo and k[1] == lead
+                          and np.asarray(mapas[k]["n"]).sum() > 0}
+                if not pormes:
+                    continue
+                N.plota_mapas_mes(
+                    grade["lats"], grade["lons"], pormes, unidade,
+                    f"{nome} - {modelo} - D+{lead} (media diaria por periodo)",
+                    os.path.join(saida, f"mapa_{nome}_{modelo}_D{lead}.png"),
+                    difcmap=difcmap)
+    else:                                      # compat: formato antigo
+        for modelo, arrs in mapas.items():
+            if "sdif" in arrs and np.asarray(arrs["n"]).sum() > 0:
+                N.plota_mapas(arrs, grade["lats"], grade["lons"], unidade,
+                              f"{nome} - {modelo}",
+                              os.path.join(saida, f"mapas_{nome}_{modelo}.png"),
+                              difcmap=difcmap)
 
 
 def main(argv=None):

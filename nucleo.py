@@ -431,3 +431,69 @@ def plota_mapas(arrs, grade_lats, grade_lons, unidade, titulo, arqsaida, difcmap
         fig.colorbar(im, ax=a, shrink=0.85, label=unidade)
     fig.suptitle(titulo); fig.tight_layout()
     fig.savefig(arqsaida, dpi=120); plt.close(fig); print(f"  {arqsaida}")
+
+
+MESES = {1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun",
+         7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez"}
+
+
+def _soma_mapas(lista):
+    """Soma sp/so/n de varios acumuladores de mapa (para o 'Todo periodo')."""
+    sp = sum(np.asarray(a["sp"], float) for a in lista)
+    so = sum(np.asarray(a["so"], float) for a in lista)
+    n = sum(np.asarray(a["n"], float) for a in lista)
+    return {"sp": sp, "so": so, "n": n}
+
+
+def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
+                    difcmap="RdBu_r"):
+    """Mapas de media diaria por periodo: colunas = [Todo, meses presentes];
+    linhas = [Prev media, Vies medio (Prev-Obs)]. pormes: {mes_int: {sp,so,n}}."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    lats = np.asarray(grade_lats); lons = np.asarray(grade_lons)
+    flip = lats[0] > lats[-1]
+    ext = [lons.min(), lons.max(), lats.min(), lats.max()]
+    meses = sorted(pormes)
+    cols = [("Todo periodo", _soma_mapas([pormes[m] for m in meses]))]
+    cols += [(MESES.get(m, str(m)), pormes[m]) for m in meses]
+
+    def med(a):
+        with np.errstate(invalid="ignore"):
+            n = np.asarray(a["n"], float)
+            pm = np.where(n > 0, np.asarray(a["sp"], float) / n, np.nan)
+            bm = np.where(n > 0, (np.asarray(a["sp"], float) -
+                                  np.asarray(a["so"], float)) / n, np.nan)
+        if flip:
+            pm, bm = pm[::-1], bm[::-1]
+        return pm, bm
+
+    dados = [med(a) for _, a in cols]
+    todas_p = np.concatenate([d[0][np.isfinite(d[0])] for d in dados]) if dados else np.array([])
+    todas_b = np.concatenate([np.abs(d[1][np.isfinite(d[1])]) for d in dados]) if dados else np.array([])
+    vmin = float(np.nanpercentile(todas_p, 1)) if todas_p.size else 0.0
+    vmax = float(np.nanpercentile(todas_p, 99)) if todas_p.size else 1.0
+    if not np.isfinite(vmax) or vmax <= vmin:
+        vmin, vmax = 0.0, 1.0
+    bmax = float(np.nanpercentile(todas_b, 99)) if todas_b.size else 1.0
+    if not np.isfinite(bmax) or bmax <= 0:
+        bmax = 1.0
+
+    nc = len(cols)
+    fig, axs = plt.subplots(2, nc, figsize=(3.6 * nc + 1, 7.2), squeeze=False)
+    for j, (rot, _a) in enumerate(cols):
+        pm, bm = dados[j]
+        im0 = axs[0, j].imshow(pm, origin="lower", extent=ext, aspect="auto",
+                               cmap="viridis", vmin=vmin, vmax=vmax)
+        axs[0, j].set_title(rot)
+        im1 = axs[1, j].imshow(bm, origin="lower", extent=ext, aspect="auto",
+                               cmap=difcmap, vmin=-bmax, vmax=bmax)
+        for i in (0, 1):
+            axs[i, j].set_xlabel("lon")
+            if j == 0:
+                axs[i, j].set_ylabel("lat")
+    fig.colorbar(im0, ax=axs[0, :].tolist(), shrink=0.8, label=f"Prev media ({unidade})")
+    fig.colorbar(im1, ax=axs[1, :].tolist(), shrink=0.8, label=f"Vies ({unidade})")
+    fig.suptitle(titulo, fontsize=13)
+    fig.savefig(arqsaida, dpi=120); plt.close(fig); print(f"  {arqsaida}")

@@ -81,6 +81,16 @@ resultado e' **identico** ao sequencial (validado: processar tudo de uma vez ==
 processar em partes e mesclar). Como o FSS domina o custo, o ganho e' quase
 linear com o numero de cores. No PBS, case `--jobs $NCPUS`.
 
+### Mapas espaciais (media diaria por prazo, por mes)
+
+A secao `mapas` da config controla os mapas espaciais: para cada dia de previsao
+(prazo) e' gerada `mapa_<comp>_<modelo>_D<lead>.png` com colunas
+[Todo periodo, Jan, Fev, Mar, ...] e linhas [Prev media, Vies medio]. Opcoes:
+`ativar` (liga/desliga), `leads` (lista de prazos a mapear; `null` = todos) e
+`por_mes` (separa por mes + Todo, ou so Todo). Em grades grandes, restrinja
+`leads` para conter memoria e o tamanho do binario (os mapas sao gravados em
+float32).
+
 O geopotencial em **500 hPa** ja esta no arquivo (componente `z500`
 **comentado**): descomente e aponte o ERA5 em niveis de pressao + o campo 3D
 do modelo (ou um `.ctl/.bin` ja no nivel 500) para ativa-lo.
