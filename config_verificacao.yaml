@@ -23,6 +23,8 @@ mapas:
   ativar: true
   leads: null        # null = todos os prazos; ou lista, ex.: [1, 3, 5, 7]
   por_mes: true      # true = separa por mes + Todo; false = so Todo periodo
+  meses: [1, 2, 3]   # so meses completos (Jan/Fev/Mar); descarta Abr parcial
+  bordas: true       # fronteiras de paises + estados do Brasil (cartopy)
 
 regioes:
   # caixas das 4 regioes do relatorio (aproximadas; ajuste se tiver as oficiais)
@@ -102,6 +104,28 @@ componentes:
     modelos:
       jaci: {subdir: nc,      reader: netcdf, padrao: "V10M_*.nc", var: v10m, unidade: m/s}
       xc50: {subdir: nc_oper, reader: netcdf, padrao: "V10M_*.nc", var: v10m, unidade: m/s}
+
+  # magnitude do vento a 10 m = sqrt(u^2 + v^2) (derivada de u e v)
+  wspd10:
+    tipo: instantaneo
+    referencia: era5
+    unidade: m/s
+    metricas: [continuas]
+    derivada: magnitude
+    era5: {u: u10, v: v10, unidade: m/s}
+    modelos:
+      jaci:
+        subdir: nc
+        reader: netcdf
+        unidade: m/s
+        u: {padrao: "U10M_*.nc", var: u10m}
+        v: {padrao: "V10M_*.nc", var: v10m}
+      xc50:
+        subdir: nc_oper
+        reader: netcdf
+        unidade: m/s
+        u: {padrao: "U10M_*.nc", var: u10m}
+        v: {padrao: "V10M_*.nc", var: v10m}
 
   # ----- geopotencial em 500 hPa: preparado, ATIVE quando tiver os dados -----
   # Requer ERA5 em niveis de pressao (variavel z, nivel 500) e o campo 3D do

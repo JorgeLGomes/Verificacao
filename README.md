@@ -84,12 +84,22 @@ linear com o numero de cores. No PBS, case `--jobs $NCPUS`.
 ### Mapas espaciais (media diaria por prazo, por mes)
 
 A secao `mapas` da config controla os mapas espaciais: para cada dia de previsao
-(prazo) e' gerada `mapa_<comp>_<modelo>_D<lead>.png` com colunas
-[Todo periodo, Jan, Fev, Mar, ...] e linhas [Prev media, Vies medio]. Opcoes:
-`ativar` (liga/desliga), `leads` (lista de prazos a mapear; `null` = todos) e
-`por_mes` (separa por mes + Todo, ou so Todo). Em grades grandes, restrinja
-`leads` para conter memoria e o tamanho do binario (os mapas sao gravados em
-float32).
+(prazo) e' gerada `mapa_<comp>_<modelo>_D<lead>.png` com **colunas**
+[Todo periodo, Jan, Fev, Mar] e **linhas** [<referencia> media, Prev media,
+Vies medio] — a linha da referencia e' o MERGE (precip) ou o ERA5 (demais).
+Aplica-se a todos os campos: precipitacao, T2m, PNMM, U10, V10 e a magnitude
+do vento a 10 m (`wspd10`, derivada de u e v).
+
+Opcoes: `ativar`, `leads` (prazos a mapear; `null` = todos), `por_mes`, `meses`
+(so meses completos, default `[1, 2, 3]` — descarta abril parcial) e `bordas`
+(fronteiras de paises + estados do Brasil via cartopy). Em grades grandes,
+restrinja `leads` para conter memoria/tamanho do binario (mapas em float32).
+
+> **Fronteiras no cluster:** o cartopy baixa os shapefiles do Natural Earth na
+> 1a vez e os guarda em cache (`~/.local/share/cartopy`). Se os nos de calculo
+> nao tiverem internet, gere as figuras num no de login com acesso, ou
+> pre-baixe os shapefiles; sem eles, as fronteiras sao simplesmente omitidas
+> (as figuras saem sem travar).
 
 O geopotencial em **500 hPa** ja esta no arquivo (componente `z500`
 **comentado**): descomente e aponte o ERA5 em niveis de pressao + o campo 3D

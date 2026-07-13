@@ -445,55 +445,118 @@ def _soma_mapas(lista):
     return {"sp": sp, "so": so, "n": n}
 
 
+_BORDAS_CACHE = {}   # id(feature) -> disponivel? (checa uma vez por sessao)
+
+
+def _add_bordas(ax):
+    """Fronteiras de paises + estados do Brasil (Natural Earth via cartopy).
+    Checa a disponibilidade de cada feature UMA vez (cache); se os shapefiles
+    nao estiverem acessiveis, apenas ignora (sem travar e sem re-tentar)."""
+    try:
+        import cartopy.feature as cfeature
+    except Exception:
+        return
+    for feat, lw, ec in [(cfeature.COASTLINE, 0.5, "black"),
+                         (cfeature.BORDERS, 0.5, "black"),
+                         (cfeature.STATES, 0.3, "gray")]:
+        ok = _BORDAS_CACHE.get(id(feat))
+        if ok is None:
+            try:
+                list(feat.geometries())      # forca fetch/local uma unica vez
+                ok = True
+            except Exception:
+                ok = False
+            _BORDAS_CACHE[id(feat)] = ok
+        if ok:
+            try:
+                ax.add_feature(feat, linewidth=lw, edgecolor=ec, facecolor="none")
+            except Exception:
+                pass
+
+
 def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
-                    difcmap="RdBu_r"):
-    """Mapas de media diaria por periodo: colunas = [Todo, meses presentes];
-    linhas = [Prev media, Vies medio (Prev-Obs)]. pormes: {mes_int: {sp,so,n}}."""
+                    difcmap="RdBu_r", ref_nome="Ref", bordas=True,
+                    meses_ok=(1, 2, 3)):
+    """Mapas de media diaria por dia de previsao. Colunas = [Todo periodo,
+    meses em meses_ok]; linhas = [<ref> media, Prev media, Vies medio].
+    pormes: {mes_int: {sp, so, n}}. Fronteiras (paises + estados BR) via cartopy."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     lats = np.asarray(grade_lats); lons = np.asarray(grade_lons)
     flip = lats[0] > lats[-1]
     ext = [lons.min(), lons.max(), lats.min(), lats.max()]
-    meses = sorted(pormes)
+    meses = [m for m in sorted(pormes) if m in meses_ok]
+    if not meses:
+        return
     cols = [("Todo periodo", _soma_mapas([pormes[m] for m in meses]))]
     cols += [(MESES.get(m, str(m)), pormes[m]) for m in meses]
 
-    def med(a):
+    def campos(a):
         with np.errstate(invalid="ignore"):
             n = np.asarray(a["n"], float)
-            pm = np.where(n > 0, np.asarray(a["sp"], float) / n, np.nan)
-            bm = np.where(n > 0, (np.asarray(a["sp"], float) -
-                                  np.asarray(a["so"], float)) / n, np.nan)
+            sp = np.asarray(a["sp"], float); so = np.asarray(a["so"], float)
+            rm = np.where(n > 0, so / n, np.nan)          # media da referencia
+            pm = np.where(n > 0, sp / n, np.nan)          # media da previsao
+            bm = np.where(n > 0, (sp - so) / n, np.nan)   # vies medio
         if flip:
-            pm, bm = pm[::-1], bm[::-1]
-        return pm, bm
+            rm, pm, bm = rm[::-1], pm[::-1], bm[::-1]
+        return rm, pm, bm
 
-    dados = [med(a) for _, a in cols]
-    todas_p = np.concatenate([d[0][np.isfinite(d[0])] for d in dados]) if dados else np.array([])
-    todas_b = np.concatenate([np.abs(d[1][np.isfinite(d[1])]) for d in dados]) if dados else np.array([])
-    vmin = float(np.nanpercentile(todas_p, 1)) if todas_p.size else 0.0
-    vmax = float(np.nanpercentile(todas_p, 99)) if todas_p.size else 1.0
+    dados = [campos(a) for _, a in cols]
+    rp = np.concatenate([np.concatenate([d[0][np.isfinite(d[0])],
+                                         d[1][np.isfinite(d[1])]]) for d in dados]) \
+        if dados else np.array([])
+    bb = np.concatenate([np.abs(d[2][np.isfinite(d[2])]) for d in dados]) \
+        if dados else np.array([])
+    vmin = float(np.nanpercentile(rp, 1)) if rp.size else 0.0
+    vmax = float(np.nanpercentile(rp, 99)) if rp.size else 1.0
     if not np.isfinite(vmax) or vmax <= vmin:
         vmin, vmax = 0.0, 1.0
-    bmax = float(np.nanpercentile(todas_b, 99)) if todas_b.size else 1.0
+    bmax = float(np.nanpercentile(bb, 99)) if bb.size else 1.0
     if not np.isfinite(bmax) or bmax <= 0:
         bmax = 1.0
 
-    nc = len(cols)
-    fig, axs = plt.subplots(2, nc, figsize=(3.6 * nc + 1, 7.2), squeeze=False)
-    for j, (rot, _a) in enumerate(cols):
-        pm, bm = dados[j]
-        im0 = axs[0, j].imshow(pm, origin="lower", extent=ext, aspect="auto",
-                               cmap="viridis", vmin=vmin, vmax=vmax)
-        axs[0, j].set_title(rot)
-        im1 = axs[1, j].imshow(bm, origin="lower", extent=ext, aspect="auto",
-                               cmap=difcmap, vmin=-bmax, vmax=bmax)
-        for i in (0, 1):
-            axs[i, j].set_xlabel("lon")
+    proj = None
+    if bordas:
+        try:
+            import cartopy.crs as ccrs
+            proj = ccrs.PlateCarree()
+        except Exception:
+            proj = None
+
+    nrows, ncols = 3, len(cols)
+    rot_linha = [f"{ref_nome} media", "Prev media", "Vies medio"]
+    fig = plt.figure(figsize=(3.4 * ncols + 1.6, 9.4))
+    axes = [[None] * ncols for _ in range(nrows)]
+    ims = [None] * nrows
+    for j, (ctit, _a) in enumerate(cols):
+        rm, pm, bm = dados[j]
+        for i, (campo, cmap, vlim) in enumerate([
+                (rm, "viridis", (vmin, vmax)),
+                (pm, "viridis", (vmin, vmax)),
+                (bm, difcmap, (-bmax, bmax))]):
+            k = i * ncols + j + 1
+            if proj is not None:
+                ax = fig.add_subplot(nrows, ncols, k, projection=proj)
+                im = ax.imshow(campo, origin="lower", extent=ext, transform=proj,
+                               cmap=cmap, vmin=vlim[0], vmax=vlim[1])
+                ax.set_extent(ext, crs=proj)
+                _add_bordas(ax)
+            else:
+                ax = fig.add_subplot(nrows, ncols, k)
+                im = ax.imshow(campo, origin="lower", extent=ext, aspect="auto",
+                               cmap=cmap, vmin=vlim[0], vmax=vlim[1])
+            if i == 0:
+                ax.set_title(ctit)
             if j == 0:
-                axs[i, j].set_ylabel("lat")
-    fig.colorbar(im0, ax=axs[0, :].tolist(), shrink=0.8, label=f"Prev media ({unidade})")
-    fig.colorbar(im1, ax=axs[1, :].tolist(), shrink=0.8, label=f"Vies ({unidade})")
+                ax.text(-0.16, 0.5, rot_linha[i], transform=ax.transAxes,
+                        rotation=90, va="center", ha="center", fontsize=11)
+            axes[i][j] = ax; ims[i] = im
+    labs = [f"{ref_nome} ({unidade})", f"Prev ({unidade})", f"Vies ({unidade})"]
+    for i in range(nrows):
+        fig.colorbar(ims[i], ax=axes[i], location="right", shrink=0.85,
+                     fraction=0.02, pad=0.02, label=labs[i])
     fig.suptitle(titulo, fontsize=13)
-    fig.savefig(arqsaida, dpi=120); plt.close(fig); print(f"  {arqsaida}")
+    fig.savefig(arqsaida, dpi=120, bbox_inches="tight")
+    plt.close(fig); print(f"  {arqsaida}")

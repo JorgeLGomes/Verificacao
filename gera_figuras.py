@@ -63,6 +63,7 @@ def figuras_componente(comp, saida):
     # ---- mapas espaciais: media diaria por (modelo, prazo), colunas Todo/meses
     grade = comp.get("grade", {})
     difcmap = "BrBG" if comp.get("tipo") == "acum24" else "RdBu_r"
+    ref_nome = "MERGE" if comp.get("tipo") == "acum24" else "ERA5"
     mapas = comp.get("mapas", {})
     chaves = list(mapas.keys())
     if chaves and isinstance(chaves[0], tuple):
@@ -79,7 +80,7 @@ def figuras_componente(comp, saida):
                     grade["lats"], grade["lons"], pormes, unidade,
                     f"{nome} - {modelo} - D+{lead} (media diaria por periodo)",
                     os.path.join(saida, f"mapa_{nome}_{modelo}_D{lead}.png"),
-                    difcmap=difcmap)
+                    difcmap=difcmap, ref_nome=ref_nome)
     else:                                      # compat: formato antigo
         for modelo, arrs in mapas.items():
             if "sdif" in arrs and np.asarray(arrs["n"]).sum() > 0:

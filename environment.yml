@@ -20,6 +20,7 @@ dependencies:
   - netcdf4
   - matplotlib-base
   - pyyaml
+  - cartopy         # fronteiras de paises/estados nos mapas (Natural Earth)
   # --- opcionais ---
   - cfgrib          # leitura de GRIB/GRIB2 (so se for usar dados em GRIB)
   - eccodes         # backend do cfgrib

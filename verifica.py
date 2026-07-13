@@ -84,6 +84,15 @@ class RefEra5:
             arr = N.converte_unidade(arr, unidade, para)
         return N.Campo(arr, self.lats, self.lons, nome=var)
 
+    def campo_mag(self, valido, uvar, vvar, unidade=None, para=None):
+        """Magnitude do vento sqrt(u^2+v^2) da reanalise no tempo valido."""
+        cu = self.campo(valido, var=uvar, unidade=unidade, para=para)
+        cv = self.campo(valido, var=vvar, unidade=unidade, para=para)
+        if cu is None or cv is None:
+            return None
+        mag = np.sqrt(cu.dados ** 2 + cv.dados ** 2)
+        return N.Campo(mag, self.lats, self.lons, nome="mag")
+
     def close(self):
         self.ds.close()
 
@@ -161,6 +170,21 @@ def _rotulo_mes(cfg, valido):
     return int(pd.Timestamp(valido).month)
 
 
+def _meses_ok(cfg):
+    """Meses aceitos nos mapas (default Jan/Fev/Mar). 0 = agregado sempre entra."""
+    mc = cfg.get("mapas", {}) or {}
+    return set(mc.get("meses", [1, 2, 3])) | {0}
+
+
+def _acumula_mapa(cfg, mapas, ref, modelo, lead, valido, P, O):
+    if not _quer_mapa(cfg, lead):
+        return
+    mes = _rotulo_mes(cfg, valido)
+    if mes not in _meses_ok(cfg):
+        return
+    mapas.setdefault((modelo, lead, mes), N.Mapas(ref.grade)).add(P, O)
+
+
 # ==========================================================================
 # COMPONENTE: PRECIPITACAO (acum24 + regioes + categoricas/fss)
 # ==========================================================================
@@ -198,9 +222,32 @@ def _run_precip(cfg, comp, ref, masks, regioes, modelo, run,
             cat.setdefault((modelo, jw.lead), N.AccCategoria(limiares)).add(P, O)
         if quer_fss:
             fss.setdefault((modelo, jw.lead), N.AccFSS(limiares, escalas)).add(P, O)
-        if _quer_mapa(cfg, jw.lead):
-            mes = _rotulo_mes(cfg, jw.fim)
-            mapas.setdefault((modelo, jw.lead, mes), N.Mapas(ref.grade)).add(P, O)
+        _acumula_mapa(cfg, mapas, ref, modelo, jw.lead, jw.fim, P, O)
+
+
+def _campos_magnitude(cfg, comp, modelo, run, leads_horas, init):
+    """Le u e v do modelo e devolve a magnitude sqrt(u^2+v^2) por tempo valido."""
+    mspec = comp["modelos"][modelo]
+    subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
+    reader = mspec.get("reader", cfg["modelos"][modelo].get("reader", "netcdf"))
+    uu = mspec["u"]; vv = mspec["v"]; para = comp.get("unidade")
+    uspec = {"var": uu.get("var"), "unidade": mspec.get("unidade"), "para": para}
+    vspec = {"var": vv.get("var"), "unidade": mspec.get("unidade"), "para": para}
+    uarq = _acha_arq(cfg["base"], subdir, run, uu["padrao"])
+    varq = _acha_arq(cfg["base"], subdir, run, vv["padrao"])
+    if uarq is None or varq is None:
+        return []
+    uc = campos_instantaneos(uarq, uspec, leads_horas, init, reader)
+    vc = campos_instantaneos(varq, vspec, leads_horas, init, reader)
+    vmap = {c[0]: c[3] for c in vc}
+    saida = []
+    for valido, lh, ld, ucampo in uc:
+        vcampo = vmap.get(valido)
+        if vcampo is None:
+            continue
+        mag = np.sqrt(ucampo.dados ** 2 + vcampo.dados ** 2)
+        saida.append((valido, lh, ld, N.Campo(mag, ucampo.lats, ucampo.lons, "mag")))
+    return saida
 
 
 def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
@@ -208,23 +255,29 @@ def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
     mspec = comp["modelos"][modelo]
     leads_horas = cfg.get("leads_horas", [24, 48, 72, 96, 120, 144, 168, 192, 216])
     e5 = comp.get("era5", {})
-    subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
-    reader = mspec.get("reader", cfg["modelos"][modelo].get("reader", "netcdf"))
-    spec = {"var": mspec.get("var"), "unidade": mspec.get("unidade"),
-            "para": comp.get("unidade"), "nivel": mspec.get("nivel")}
-    arq = _acha_arq(cfg["base"], subdir, run, mspec["padrao"])
-    if arq is None:
-        return
     init = datetime.strptime(run, "%Y%m%d%H")
+    magnitude = comp.get("derivada") == "magnitude"
     try:
-        campos = campos_instantaneos(arq, spec, leads_horas, init, reader)
+        if magnitude:
+            campos = _campos_magnitude(cfg, comp, modelo, run, leads_horas, init)
+        else:
+            subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
+            reader = mspec.get("reader", cfg["modelos"][modelo].get("reader", "netcdf"))
+            spec = {"var": mspec.get("var"), "unidade": mspec.get("unidade"),
+                    "para": comp.get("unidade"), "nivel": mspec.get("nivel")}
+            arq = _acha_arq(cfg["base"], subdir, run, mspec["padrao"])
+            campos = campos_instantaneos(arq, spec, leads_horas, init, reader) if arq else []
     except Exception as ex:
         print(f"    [{run}] erro: {ex}"); return
     for valido, lh, ld, campo in campos:
         if max_lead and ld > max_lead:
             continue
-        co = ref.campo(valido, var=e5.get("var"), nivel=e5.get("nivel"),
-                       unidade=e5.get("unidade"), para=comp.get("unidade"))
+        if magnitude:
+            co = ref.campo_mag(valido, e5.get("u"), e5.get("v"),
+                               unidade=e5.get("unidade"), para=comp.get("unidade"))
+        else:
+            co = ref.campo(valido, var=e5.get("var"), nivel=e5.get("nivel"),
+                           unidade=e5.get("unidade"), para=comp.get("unidade"))
         if co is None:
             continue
         P = N.regrid(campo, ref.grade, metodo=cfg.get("regrid", "linear")).dados
@@ -232,9 +285,7 @@ def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
         for rg in regioes:
             mk = masks[rg]
             cont.setdefault((modelo, rg, ld), N.AccCont()).add_caso(P[mk], O[mk])
-        if _quer_mapa(cfg, ld):
-            mes = _rotulo_mes(cfg, valido)
-            mapas.setdefault((modelo, ld, mes), N.Mapas(ref.grade)).add(P, O)
+        _acumula_mapa(cfg, mapas, ref, modelo, ld, valido, P, O)
 
 
 def _acumula_run(cfg, comp, ref, masks, regioes, modelo, run, max_lead,
