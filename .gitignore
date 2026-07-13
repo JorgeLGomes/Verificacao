@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Dados raw
+*.nc
+*.nc4
+*.grib
+*.grib2
+*.grb2
+*.ctl
+*.bin
+*.tif
+*.tiff
+
+# Saidas / binarios / figuras
+resultados_uni/
+res_*/
+saida*/
+*.pkl
+*.png
+*.csv
+
+# Config/temporarios de teste
+config_teste.yaml
+
+# Sistema
+.DS_Store
+.ipynb_checkpoints/

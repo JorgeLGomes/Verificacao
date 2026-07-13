@@ -1,0 +1,8 @@
+numpy
+pandas
+scipy
+xarray
+netCDF4
+matplotlib
+pyyaml
+global-land-mask   # opcional: mascara terra/mar (Continente/Oceano)

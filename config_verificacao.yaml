@@ -1,0 +1,110 @@
+# =====================================================================
+# Configuracao unificada da verificacao do modelo Eta
+#   - precipitacao acumulada 24h  -> referencia MERGE
+#   - campos continuos instantaneos (T2m, PNMM, vento 10m, [Z500]) -> ERA5
+# Edite os caminhos e, se preciso, os nomes de variaveis (use verifica.py de
+# cada componente com --max-rodadas 1 para um teste rapido).
+# =====================================================================
+
+base: /lustre/projetos/grpeta/Team/jorge.gomes/convert2nc   # raiz com nc/, nc_oper/, nc_merge/
+saida: resultados_uni
+regrid: linear                # linear (bilinear) ou nearest
+init_glob: "*"                # filtra rodadas (ex.: "202601*")
+
+# janelas de 24h para precipitacao (horas finais: 12=12Z-12Z, 0=00Z-00Z)
+janelas_precip: [12, 0]
+# prazos (horas) para os campos instantaneos vs ERA5
+leads_horas: [24, 48, 72, 96, 120, 144, 168, 192, 216]
+
+regioes:
+  # caixas das 4 regioes do relatorio (aproximadas; ajuste se tiver as oficiais)
+  caixas_br:
+    Amazonia: [-7.0, -1.0, -68.0, -58.0]
+    Nordeste: [-12.0, -5.0, -42.0, -35.0]
+    Sudeste:  [-24.0, -18.0, -48.0, -40.0]
+    Sul:      [-32.0, -26.0, -57.0, -49.0]
+
+# modelos comparados (comum a todos os componentes)
+modelos:
+  jaci: {subdir: nc,      reader: netcdf}
+  xc50: {subdir: nc_oper, reader: netcdf}
+
+# fontes de referencia
+referencias:
+  merge:
+    reader: netcdf
+    subdir: nc_merge
+    padrao: "MERGE_*.nc"
+  era5:
+    reader: netcdf
+    arquivo: /lustre/projetos/grpeta/Team/jorge.gomes/ERA5/data_stream-oper_stepType-instant.nc
+
+# =====================================================================
+# COMPONENTES (o que verificar)
+# =====================================================================
+componentes:
+
+  precipitacao:
+    tipo: acum24
+    referencia: merge
+    unidade: mm
+    metricas: [continuas, categoricas, fss]
+    limiares: [0.254, 2.54, 6.35, 12.7, 19.05, 25.4, 38.1, 50.0]
+    escalas_fss: [1, 3, 5, 11]
+    modelos:
+      jaci: {padrao: "PREC-ACUM24h_*.nc", var: null, fator_para_mm: 1000.0, acumulado: true}
+      xc50: {padrao: "PREC_*.nc",         var: null, fator_para_mm: 1.0,    acumulado: false}
+
+  t2m:
+    tipo: instantaneo
+    referencia: era5
+    unidade: C
+    metricas: [continuas]
+    era5: {var: t2m, unidade: K}
+    modelos:
+      jaci: {subdir: nc,      reader: netcdf, padrao: "TP2M_*.nc", var: tp2m, unidade: K}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "TP2M_*.nc", var: tp2m, unidade: K}
+
+  pnmm:
+    tipo: instantaneo
+    referencia: era5
+    unidade: hPa
+    metricas: [continuas]
+    era5: {var: msl, unidade: Pa}
+    modelos:
+      jaci: {subdir: nc,      reader: netcdf, padrao: "PSLM_*.nc", var: pslm, unidade: hPa}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "PSLM_*.nc", var: pslm, unidade: hPa}
+
+  u10:
+    tipo: instantaneo
+    referencia: era5
+    unidade: m/s
+    metricas: [continuas]
+    era5: {var: u10, unidade: m/s}
+    modelos:
+      jaci: {subdir: nc,      reader: netcdf, padrao: "U10M_*.nc", var: u10m, unidade: m/s}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "U10M_*.nc", var: u10m, unidade: m/s}
+
+  v10:
+    tipo: instantaneo
+    referencia: era5
+    unidade: m/s
+    metricas: [continuas]
+    era5: {var: v10, unidade: m/s}
+    modelos:
+      jaci: {subdir: nc,      reader: netcdf, padrao: "V10M_*.nc", var: v10m, unidade: m/s}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "V10M_*.nc", var: v10m, unidade: m/s}
+
+  # ----- geopotencial em 500 hPa: preparado, ATIVE quando tiver os dados -----
+  # Requer ERA5 em niveis de pressao (variavel z, nivel 500) e o campo 3D do
+  # modelo (ZGEO). Para binctl use um .ctl/.bin ja no nivel 500, ou o NetCDF 3D
+  # com a variavel e o nivel selecionavel (spec.nivel).
+  # z500:
+  #   tipo: instantaneo
+  #   referencia: era5
+  #   unidade: m
+  #   metricas: [continuas]
+  #   era5: {var: z, nivel: 500, unidade: m}     # se z vier como geopotencial (m2/s2), converta /9.80665
+  #   modelos:
+  #     jaci: {subdir: nc,      reader: netcdf, padrao: "ZGEO_*.nc", var: zgeo, nivel: 500, unidade: m}
+  #     xc50: {subdir: nc_oper, reader: netcdf, padrao: "ZGEO_*.nc", var: zgeo, nivel: 500, unidade: m}
