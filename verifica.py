@@ -146,91 +146,150 @@ def campos_instantaneos(arq, spec, leads_horas, init, reader="netcdf"):
 # ==========================================================================
 # COMPONENTE: PRECIPITACAO (acum24 + regioes + categoricas/fss)
 # ==========================================================================
-def roda_precip(cfg, comp, ref, masks, regioes, args):
-    cont = {}; cat = {}; fssacc = {}; mapas = {}
+def _run_precip(cfg, comp, ref, masks, regioes, modelo, run,
+                cont, cat, fss, mapas, max_lead):
+    mspec = comp["modelos"][modelo]
     horas = cfg.get("janelas_precip", [12, 0])
     limiares = comp.get("limiares", [0.254, 2.54, 6.35, 12.7, 19.05, 25.4, 38.1, 50])
     escalas = comp.get("escalas_fss", [1, 3, 5, 11])
     quer_cat = "categoricas" in comp.get("metricas", [])
     quer_fss = "fss" in comp.get("metricas", [])
-
-    for modelo, mspec in comp["modelos"].items():
-        pe_cfg = {"subdir": cfg["modelos"][modelo]["subdir"],
-                  "padrao": mspec["padrao"], "var": mspec.get("var"),
-                  "fator": mspec.get("fator_para_mm", 1.0),
-                  "acumulado": mspec.get("acumulado", False)}
-        runs = _lista_rodadas(cfg["base"], pe_cfg["subdir"],
-                              cfg.get("init_glob", "*"), args.max_rodadas)
-        print(f"  [{comp['nome']}] modelo {modelo}: {len(runs)} rodadas")
-        for run in runs:
-            arq = _acha_arq(cfg["base"], pe_cfg["subdir"], run, pe_cfg["padrao"])
-            if arq is None:
-                continue
-            init = datetime.strptime(run, "%Y%m%d%H")
-            try:
-                janelas = PE.previsao_acum24(arq, pe_cfg, horas, init)
-            except Exception as e:
-                print(f"    [{run}] erro: {e}"); continue
-            for jw in janelas:
-                if args.max_lead and jw.lead > args.max_lead:
-                    continue
-                co = ref.campo(jw.fim)
-                if co is None:
-                    continue
-                P = PE.regrid(jw.campo, ref.grade, metodo=cfg.get("regrid", "linear")).dados
-                O = co.dados
-                for rg in regioes:
-                    mk = masks[rg]
-                    k = (modelo, rg, jw.lead)
-                    cont.setdefault(k, N.AccCont()).add_caso(
-                        np.where(mk, P, np.nan), np.where(mk, O, np.nan))
-                if quer_cat:
-                    cat.setdefault((modelo, jw.lead), N.AccCategoria(limiares)).add(P, O)
-                if quer_fss:
-                    fssacc.setdefault((modelo, jw.lead), N.AccFSS(limiares, escalas)).add(P, O)
-                mapas.setdefault(modelo, N.Mapas(ref.grade)).add(P, O)
-    return _empacota(comp, cont, cat, fssacc, mapas, ref)
+    pe_cfg = {"subdir": cfg["modelos"][modelo]["subdir"], "padrao": mspec["padrao"],
+              "var": mspec.get("var"), "fator": mspec.get("fator_para_mm", 1.0),
+              "acumulado": mspec.get("acumulado", False)}
+    arq = _acha_arq(cfg["base"], pe_cfg["subdir"], run, pe_cfg["padrao"])
+    if arq is None:
+        return
+    init = datetime.strptime(run, "%Y%m%d%H")
+    try:
+        janelas = PE.previsao_acum24(arq, pe_cfg, horas, init)
+    except Exception as e:
+        print(f"    [{run}] erro: {e}"); return
+    for jw in janelas:
+        if max_lead and jw.lead > max_lead:
+            continue
+        co = ref.campo(jw.fim)
+        if co is None:
+            continue
+        P = PE.regrid(jw.campo, ref.grade, metodo=cfg.get("regrid", "linear")).dados
+        O = co.dados
+        for rg in regioes:
+            mk = masks[rg]
+            cont.setdefault((modelo, rg, jw.lead), N.AccCont()).add_caso(P[mk], O[mk])
+        if quer_cat:
+            cat.setdefault((modelo, jw.lead), N.AccCategoria(limiares)).add(P, O)
+        if quer_fss:
+            fss.setdefault((modelo, jw.lead), N.AccFSS(limiares, escalas)).add(P, O)
+        mapas.setdefault(modelo, N.Mapas(ref.grade)).add(P, O)
 
 
-# ==========================================================================
-# COMPONENTE: CAMPO INSTANTANEO (x ERA5 + regioes, so continuas)
-# ==========================================================================
-def roda_instantaneo(cfg, comp, ref, masks, regioes, args):
-    cont = {}; mapas = {}
+def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
+                 cont, cat, fss, mapas, max_lead):
+    mspec = comp["modelos"][modelo]
     leads_horas = cfg.get("leads_horas", [24, 48, 72, 96, 120, 144, 168, 192, 216])
     e5 = comp.get("era5", {})
+    subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
+    reader = mspec.get("reader", cfg["modelos"][modelo].get("reader", "netcdf"))
+    spec = {"var": mspec.get("var"), "unidade": mspec.get("unidade"),
+            "para": comp.get("unidade"), "nivel": mspec.get("nivel")}
+    arq = _acha_arq(cfg["base"], subdir, run, mspec["padrao"])
+    if arq is None:
+        return
+    init = datetime.strptime(run, "%Y%m%d%H")
+    try:
+        campos = campos_instantaneos(arq, spec, leads_horas, init, reader)
+    except Exception as ex:
+        print(f"    [{run}] erro: {ex}"); return
+    for valido, lh, ld, campo in campos:
+        if max_lead and ld > max_lead:
+            continue
+        co = ref.campo(valido, var=e5.get("var"), nivel=e5.get("nivel"),
+                       unidade=e5.get("unidade"), para=comp.get("unidade"))
+        if co is None:
+            continue
+        P = N.regrid(campo, ref.grade, metodo=cfg.get("regrid", "linear")).dados
+        O = co.dados
+        for rg in regioes:
+            mk = masks[rg]
+            cont.setdefault((modelo, rg, ld), N.AccCont()).add_caso(P[mk], O[mk])
+        mapas.setdefault(modelo, N.Mapas(ref.grade)).add(P, O)
+
+
+def _acumula_run(cfg, comp, ref, masks, regioes, modelo, run, max_lead,
+                 cont, cat, fss, mapas):
+    fn = _run_precip if comp["tipo"] == "acum24" else _run_instant
+    fn(cfg, comp, ref, masks, regioes, modelo, run, cont, cat, fss, mapas, max_lead)
+
+
+def _abre_ref(cfg, nome):
+    rc = cfg["referencias"][nome]
+    if nome == "merge":
+        arq = _acha_arq(cfg["base"], rc["subdir"], "", rc["padrao"]) or \
+            sorted(glob.glob(os.path.join(cfg["base"], rc["subdir"], "*.nc")))[0]
+        return RefMerge(arq)
+    if nome == "era5":
+        return RefEra5(rc["arquivo"])
+    raise ValueError(f"referencia desconhecida: {nome}")
+
+
+def _regioes_de(ref, cfg):
+    masks, tem = N.constroi_mascaras(ref.lats, ref.lons,
+                                     cfg.get("regioes", {}).get("caixas_br"))
+    regd = ["Todo"] + (["Continente", "Oceano"] if tem else [])
+    return masks, regd, regd + list(N.CAIXAS_BR.keys())
+
+
+def _tarefas(cfg, comp, max_rodadas):
+    T = []
     for modelo, mspec in comp["modelos"].items():
         subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
-        reader = mspec.get("reader", cfg["modelos"][modelo].get("reader", "netcdf"))
-        spec = {"var": mspec.get("var"), "unidade": mspec.get("unidade"),
-                "para": comp.get("unidade"), "nivel": mspec.get("nivel")}
-        runs = _lista_rodadas(cfg["base"], subdir, cfg.get("init_glob", "*"),
-                              args.max_rodadas)
-        print(f"  [{comp['nome']}] modelo {modelo}: {len(runs)} rodadas")
-        for run in runs:
-            arq = _acha_arq(cfg["base"], subdir, run, mspec["padrao"])
-            if arq is None:
-                continue
-            init = datetime.strptime(run, "%Y%m%d%H")
-            try:
-                campos = campos_instantaneos(arq, spec, leads_horas, init, reader)
-            except Exception as ex:
-                print(f"    [{run}] erro: {ex}"); continue
-            for valido, lh, ld, campo in campos:
-                if args.max_lead and ld > args.max_lead:
-                    continue
-                co = ref.campo(valido, var=e5.get("var"), nivel=e5.get("nivel"),
-                               unidade=e5.get("unidade"), para=comp.get("unidade"))
-                if co is None:
-                    continue
-                P = N.regrid(campo, ref.grade, metodo=cfg.get("regrid", "linear")).dados
-                O = co.dados
-                for rg in regioes:
-                    mk = masks[rg]
-                    cont.setdefault((modelo, rg, ld), N.AccCont()).add_caso(
-                        np.where(mk, P, np.nan), np.where(mk, O, np.nan))
-                mapas.setdefault(modelo, N.Mapas(ref.grade)).add(P, O)
-    return _empacota(comp, cont, {}, {}, mapas, ref)
+        for run in _lista_rodadas(cfg["base"], subdir, cfg.get("init_glob", "*"),
+                                  max_rodadas):
+            T.append((modelo, run))
+    return T
+
+
+def _worker(payload):
+    """Processa um subconjunto de (modelo, run) num processo separado.
+    Cada worker abre a sua propria referencia e devolve acumuladores parciais."""
+    cfg, comp, tarefas, max_lead = payload
+    ref = _abre_ref(cfg, comp["referencia"])
+    masks, _regd, regioes = _regioes_de(ref, cfg)
+    cont = {}; cat = {}; fss = {}; mapas = {}
+    for modelo, run in tarefas:
+        _acumula_run(cfg, comp, ref, masks, regioes, modelo, run, max_lead,
+                     cont, cat, fss, mapas)
+    ref.close()
+    return cont, cat, fss, mapas
+
+
+def _merge_dict(dst, src):
+    for k, v in src.items():
+        if k in dst:
+            dst[k].merge(v)
+        else:
+            dst[k] = v
+
+
+def roda_componente(cfg, comp, ref, masks, regioes, args):
+    tarefas = _tarefas(cfg, comp, args.max_rodadas)
+    print(f"  [{comp['nome']}] {len(tarefas)} rodadas-modelo")
+    cont = {}; cat = {}; fss = {}; mapas = {}
+    if getattr(args, "jobs", 1) and args.jobs > 1 and len(tarefas) > 1:
+        import multiprocessing as mp
+        nj = min(args.jobs, len(tarefas))
+        chunks = [tarefas[i::nj] for i in range(nj)]      # round-robin (balanceado)
+        payloads = [(cfg, comp, ch, args.max_lead) for ch in chunks]
+        print(f"    paralelo: {nj} processos")
+        with mp.Pool(nj) as pool:
+            for pc, pk, pf, pm in pool.map(_worker, payloads):
+                _merge_dict(cont, pc); _merge_dict(cat, pk)
+                _merge_dict(fss, pf); _merge_dict(mapas, pm)
+    else:
+        for modelo, run in tarefas:
+            _acumula_run(cfg, comp, ref, masks, regioes, modelo, run,
+                         args.max_lead, cont, cat, fss, mapas)
+    return _empacota(comp, cont, cat, fss, mapas, ref)
 
 
 def _empacota(comp, cont, cat, fssacc, mapas, ref):
@@ -258,7 +317,13 @@ def main(argv=None):
                     help="subconjunto de componentes a processar")
     ap.add_argument("--max-rodadas", type=int, default=0)
     ap.add_argument("--max-lead", type=int, default=0)
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="numero de processos paralelos (divide as rodadas). "
+                         "0 ou negativo = usa todos os cores disponiveis.")
     args = ap.parse_args(argv)
+    if args.jobs is not None and args.jobs <= 0:
+        import multiprocessing as mp
+        args.jobs = mp.cpu_count()
 
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -269,17 +334,8 @@ def main(argv=None):
     refs = {}
 
     def get_ref(nome):
-        if nome in refs:
-            return refs[nome]
-        rc = cfg["referencias"][nome]
-        if nome == "merge":
-            arq = _acha_arq(cfg["base"], rc["subdir"], "", rc["padrao"]) or \
-                sorted(glob.glob(os.path.join(cfg["base"], rc["subdir"], "*.nc")))[0]
-            refs[nome] = RefMerge(arq)
-        elif nome == "era5":
-            refs[nome] = RefEra5(rc["arquivo"])
-        else:
-            raise ValueError(f"referencia desconhecida: {nome}")
+        if nome not in refs:
+            refs[nome] = _abre_ref(cfg, nome)
         return refs[nome]
 
     componentes = cfg["componentes"]
@@ -289,14 +345,8 @@ def main(argv=None):
         comp = dict(componentes[nome]); comp["nome"] = nome
         print(f"\n=== Componente: {nome} ({comp['tipo']}, ref={comp['referencia']}) ===")
         ref = get_ref(comp["referencia"])
-        masks, tem_terra = N.constroi_mascaras(ref.lats, ref.lons,
-                                               cfg.get("regioes", {}).get("caixas_br"))
-        regd = ["Todo"] + (["Continente", "Oceano"] if tem_terra else [])
-        regioes = regd + list(N.CAIXAS_BR.keys())
-        if comp["tipo"] == "acum24":
-            resultado[nome] = roda_precip(cfg, comp, ref, masks, regioes, args)
-        else:
-            resultado[nome] = roda_instantaneo(cfg, comp, ref, masks, regioes, args)
+        masks, regd, regioes = _regioes_de(ref, cfg)
+        resultado[nome] = roda_componente(cfg, comp, ref, masks, regioes, args)
         resultado[nome]["regioes_dominio"] = regd
 
         # CSVs por componente

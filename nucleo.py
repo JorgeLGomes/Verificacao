@@ -179,6 +179,10 @@ class AccCont:
         if p.size > 2 and p.std() > 0 and o.std() > 0:
             self.scorr += np.corrcoef(p, o)[0, 1]; self.ncasos += 1
 
+    def merge(self, o):
+        self.n += o.n; self.sdif += o.sdif; self.sabs += o.sabs
+        self.sdif2 += o.sdif2; self.scorr += o.scorr; self.ncasos += o.ncasos
+
     def scores(self):
         if self.n == 0:
             return dict(BIAS=np.nan, MAE=np.nan, RMSE=np.nan, SCORR=np.nan, n=0)
@@ -202,6 +206,11 @@ class AccCategoria:
             self.abcd[t][1] += int(np.sum(pp & ~oo))
             self.abcd[t][2] += int(np.sum(~pp & oo))
             self.abcd[t][3] += int(np.sum(~pp & ~oo))
+
+    def merge(self, o):
+        for t in self.limiares:
+            for i in range(4):
+                self.abcd[t][i] += o.abcd[t][i]
 
     def scores(self):
         out = []
@@ -236,9 +245,16 @@ class AccFSS:
 
     def add(self, p, o):
         m = np.isfinite(p) & np.isfinite(o)
+        npix = int(m.sum())
         for t in self.limiares:
             pb = (np.where(m, p, 0.0) >= t) & m
             ob = (np.where(m, o, 0.0) >= t) & m
+            # atalho: sem evento em nenhum dos campos -> fracoes todas 0
+            # (contribuicao nula ao num/den); so acumula a contagem. Identico.
+            if not pb.any() and not ob.any():
+                for s in self.escalas:
+                    self.cnt[(t, s)] += npix
+                continue
             for s in self.escalas:
                 nn = s // 2
                 fp = _fracoes(pb.astype(float), nn)[m]
@@ -246,6 +262,10 @@ class AccFSS:
                 self.num[(t, s)] += np.sum((fp - fo) ** 2)
                 self.den[(t, s)] += np.sum(fp ** 2) + np.sum(fo ** 2)
                 self.cnt[(t, s)] += fp.size
+
+    def merge(self, o):
+        for k in self.num:
+            self.num[k] += o.num[k]; self.den[k] += o.den[k]; self.cnt[k] += o.cnt[k]
 
     def scores(self):
         out = []
@@ -269,6 +289,9 @@ class Mapas:
         m = np.isfinite(p) & np.isfinite(o)
         self.sp[m] += p[m]; self.so[m] += o[m]
         self.sdif[m] += (p[m] - o[m]); self.n[m] += 1
+
+    def merge(self, o):
+        self.sp += o.sp; self.so += o.so; self.sdif += o.sdif; self.n += o.n
 
 
 # ==========================================================================

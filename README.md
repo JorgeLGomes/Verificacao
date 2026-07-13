@@ -51,6 +51,8 @@ pip install -r requirements.txt          # global-land-mask e opcional (terra/ma
 python verifica.py --config config_verificacao.yaml
 python verifica.py --config config_verificacao.yaml --componentes precipitacao t2m
 python verifica.py --config config_verificacao.yaml --max-rodadas 2   # teste rapido
+python verifica.py --config config_verificacao.yaml --jobs 8          # 8 processos
+python verifica.py --config config_verificacao.yaml --jobs 0          # todos os cores
 
 # figuras (todas, ou um subconjunto):
 python gera_figuras.py --binario resultados_uni/verificacao.pkl
@@ -69,6 +71,15 @@ python gera_figuras.py --binario resultados_uni/verificacao.pkl --componentes t2
     `acumulado` na precip; `nivel` para campos em niveis, ex.: Z500);
   - `metricas`: `continuas` (sempre) + `categoricas`/`fss` (so precip) + `limiares`.
 - `leads_horas` — prazos (horas) dos campos instantaneos; `janelas_precip` — 12/00Z.
+
+### Paralelismo (`--jobs N`)
+
+`verifica.py` divide as rodadas entre N processos (`--jobs N`; `0` = todos os
+cores). Cada processo abre a sua propria referencia e acumula um subconjunto; os
+acumuladores parciais sao mesclados no fim por estatisticas suficientes. O
+resultado e' **identico** ao sequencial (validado: processar tudo de uma vez ==
+processar em partes e mesclar). Como o FSS domina o custo, o ganho e' quase
+linear com o numero de cores. No PBS, case `--jobs $NCPUS`.
 
 O geopotencial em **500 hPa** ja esta no arquivo (componente `z500`
 **comentado**): descomente e aponte o ERA5 em niveis de pressao + o campo 3D
