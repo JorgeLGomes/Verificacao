@@ -1,0 +1,28 @@
+# Ambiente conda para a aplicacao de verificacao do Eta.
+#
+# Criar/atualizar e ativar:
+#   conda env create -f environment.yml      # primeira vez
+#   conda env update -f environment.yml --prune   # atualizar depois
+#   conda activate verificacao
+#
+# Alternativa mais rapida (se tiver o mamba):
+#   mamba env create -f environment.yml
+name: verificacao
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  # --- nucleo cientifico ---
+  - numpy
+  - pandas
+  - scipy
+  - xarray
+  - netcdf4
+  - matplotlib-base
+  - pyyaml
+  # --- opcionais ---
+  - cfgrib          # leitura de GRIB/GRIB2 (so se for usar dados em GRIB)
+  - eccodes         # backend do cfgrib
+  - pip
+  - pip:
+      - global-land-mask   # mascara terra/mar (Continente/Oceano); nao esta no conda-forge
