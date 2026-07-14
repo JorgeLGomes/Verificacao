@@ -50,6 +50,18 @@ COR_FONTE = {"jaci": "#1f77b4", "xc50": "#d62728", "ERA5": "black"}
 LS_FONTE = {"jaci": "-", "xc50": "--", "ERA5": ":"}
 MK_FONTE = {"jaci": "o", "xc50": "s", "ERA5": "^"}
 ORDEM_REG = ["Todo", "Continente", "Oceano"]   # demais regioes seguem o shapefile
+REG_DOMINIO = {                                # regioes baseadas no dominio do Eta
+    "Todo": "todo o dominio do Eta",
+    "Continente": "continente (dominio do Eta)",
+    "Oceano": "oceano (dominio do Eta)",
+}
+
+
+def _rotulo_regiao(regiao):
+    """Texto da regiao para o titulo do grafico."""
+    if regiao in REG_DOMINIO:
+        return REG_DOMINIO[regiao]
+    return f"grande bacia hidrografica: {regiao}"
 
 
 def _carrega_geoms(rcfg):
@@ -77,8 +89,29 @@ def _desenha_geom(ax, geom, **kw):
         ax.fill(x, y, **kw)
 
 
-def _mapa_regiao(ax, tipo, geoms, regiao):
-    """Desenha o conjunto de regioes e destaca 'regiao' no eixo 'ax'."""
+def _mapa_dominio(ax, dom, modo):
+    """Mini-mapa do dominio do Eta: pinta continente/oceano ou (Todo) nada.
+    dom = (lats, lons, land[bool] | None)."""
+    if not dom:
+        ax.axis("off"); return
+    from matplotlib.colors import ListedColormap
+    lats, lons, land = dom
+    hi = np.zeros((len(lats), len(lons)), dtype=float)   # 0 = dominio (cinza)
+    if land is not None and getattr(land, "size", 0):
+        if modo == "Continente":
+            hi = land.astype(float)                      # 1 = continente (vermelho)
+        elif modo == "Oceano":
+            hi = (~land).astype(float)                   # 1 = oceano (vermelho)
+    ax.pcolormesh(lons, lats, hi, cmap=ListedColormap(["#e6e6e6", "#d62728"]),
+                  vmin=0, vmax=1, shading="auto")
+    ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
+    ax.set_title(REG_DOMINIO.get(modo, modo), fontsize=9)
+
+
+def _mapa_regiao(ax, tipo, geoms, regiao, dom=None):
+    """Mini-mapa: dominio do Eta (Todo/Continente/Oceano) ou bacia em destaque."""
+    if regiao in REG_DOMINIO:
+        _mapa_dominio(ax, dom, regiao); return
     if not geoms:
         ax.axis("off"); return
     xs, ys = [], []
@@ -105,7 +138,7 @@ def _mapa_regiao(ax, tipo, geoms, regiao):
         ax.set_xlim(min(xs) - mx, max(xs) + mx)
         ax.set_ylim(min(ys) - my, max(ys) + my)
     ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
-    ax.set_title(f"regiao: {regiao}", fontsize=9)
+    ax.set_title(f"bacia: {regiao}", fontsize=9)
 
 
 def _assinatura_grade(lats, lons):
@@ -236,6 +269,45 @@ def _worker_cd(payload):
     return _acumula_chunk(*payload)
 
 
+def _salva_dominio(cfg, comp, saida, var):
+    """Salva grade + mascara de terra do dominio do Eta (1o arquivo de modelo)
+    em .npz, para o mini-mapa de Todo/Continente/Oceano no replot."""
+    caminho = os.path.join(saida, f"ciclo_diurno_{var}_dominio.npz")
+    for modelo, mspec in comp["modelos"].items():
+        subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
+        runs = V._lista_rodadas(cfg["base"], subdir, cfg.get("init_glob", "*"), 0)
+        for run in runs:
+            arq = V._resolve_arq(cfg, mspec, modelo, run, "netcdf",
+                                 mspec.get("padrao"))
+            if not arq:
+                continue
+            try:
+                ds = N.abre(arq)
+                v, latn, lonn, tn = N.nomes(ds, mspec.get("var"),
+                                            prefer="tp2m|t2m|pslm|u10|v10")
+                lats, lons = N.grade(ds, latn, lonn); ds.close()
+                masks, _ = N.constroi_mascaras(lats, lons)   # so land (sem shp)
+                land = masks.get("Continente")
+                sla = max(1, len(lats) // 300); slo = max(1, len(lons) // 300)
+                np.savez(caminho, lats=np.asarray(lats)[::sla],
+                         lons=np.asarray(lons)[::slo],
+                         land=(land[::sla, ::slo] if land is not None
+                               else np.zeros((0, 0), bool)))
+                return caminho
+            except Exception:
+                continue
+    return None
+
+
+def _carrega_dominio(saida, var):
+    caminho = os.path.join(saida, f"ciclo_diurno_{var}_dominio.npz")
+    if not os.path.isfile(caminho):
+        return None
+    d = np.load(caminho)
+    land = d["land"]
+    return (d["lats"], d["lons"], land if land.size else None)
+
+
 def calcula(cfg, args, saida):
     comp = cfg["componentes"][args.var]
     unidade = comp.get("unidade", "")
@@ -284,6 +356,7 @@ def calcula(cfg, args, saida):
     if not df.empty:
         df.sort_values(["regiao", "fonte", "lead", "hora"]).to_csv(csv, index=False)
         print(f"CSV: {csv}")
+    _salva_dominio(cfg, comp, saida, args.var)   # grade p/ mini-mapa do dominio
     return df, unidade
 
 
@@ -294,6 +367,7 @@ def plota(df, var, unidade, saida, rcfg=None):
     regioes += [r for r in df.regiao.unique() if r not in regioes]
     fontes_all = [f for f in ["jaci", "xc50", "ERA5"] if f in df.fonte.unique()]
     tipo, geoms = _carrega_geoms(rcfg or {})
+    dom = _carrega_dominio(saida, var)
     for regiao in regioes:
         dr = df[df.regiao == regiao]
         if dr.empty:
@@ -316,7 +390,7 @@ def plota(df, var, unidade, saida, rcfg=None):
             ax.set_xticks(sorted(dr.hora.unique()))
         # mini-mapa da regiao no proximo slot; demais slots desligados
         ax_map = axs.ravel()[len(leads)]
-        _mapa_regiao(ax_map, tipo, geoms, regiao)
+        _mapa_regiao(ax_map, tipo, geoms, regiao, dom)
         for k in range(len(leads) + 1, nrow * ncol):
             axs.ravel()[k].axis("off")
         h = [plt.Line2D([0], [0], color=COR_FONTE[f], linestyle=LS_FONTE[f],
@@ -324,7 +398,7 @@ def plota(df, var, unidade, saida, rcfg=None):
         fig.tight_layout(rect=[0, 0, 1, 0.94])
         fig.legend(handles=h, loc="upper left", bbox_to_anchor=(0.01, 0.99),
                    ncol=len(h), fontsize=10, framealpha=0.9)
-        fig.suptitle(f"Ciclo diurno medio - {var} - {regiao} - por prazo",
+        fig.suptitle(f"Ciclo diurno medio - {var} - {_rotulo_regiao(regiao)} - por prazo",
                      fontsize=13, x=0.5, y=0.995)
         cam = os.path.join(saida, f"ciclo_diurno_{var}_{N.slug_regiao(regiao)}.png")
         fig.savefig(cam, dpi=130); plt.close(fig)

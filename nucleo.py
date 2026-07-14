@@ -405,6 +405,10 @@ def plota_continuas_regiao(dfc, regioes, unidade, titulo, arqsaida):
     if d.empty:
         return
     modelos = sorted(d.modelo.unique())
+    # cor por regiao: usa COR_REG quando existe, senao um ciclo (tab20)
+    _pal = list(plt.get_cmap("tab20").colors)
+    cores = {rg: (COR_REG.get(rg) or _pal[i % len(_pal)])
+             for i, rg in enumerate(regioes)}
     metr = [("BIAS", f"BIAS ({unidade})"), ("MAE", f"MAE ({unidade})"),
             ("RMSE", f"RMSE ({unidade})"), ("SCORR", "SCORR")]
     fig, axs = plt.subplots(2, 2, figsize=(12, 8))
@@ -416,17 +420,17 @@ def plota_continuas_regiao(dfc, regioes, unidade, titulo, arqsaida):
                     continue
                 ls, mk = estilo(m)
                 ax.plot(sub.lead, sub[col], ls, marker=mk,
-                        color=COR_REG.get(rg, "k"), markersize=5, lw=1.8)
+                        color=cores[rg], markersize=5, lw=1.8)
         ax.set_title(rot); ax.set_xlabel("Prazo de previsao (dias)")
         ax.grid(alpha=0.3); ax.set_xticks(sorted(d.lead.unique()))
         if col == "BIAS":
             ax.axhline(0, color="grey", lw=0.8, ls=":")
-    h = [Line2D([0], [0], color=COR_REG.get(r, "k"), lw=2.5, label=r) for r in regioes]
+    h = [Line2D([0], [0], color=cores[r], lw=2.5, label=r) for r in regioes]
     h += [Line2D([0], [0], color="black", linestyle=estilo(m)[0],
                  marker=estilo(m)[1], label=m) for m in modelos]
     fig.tight_layout(rect=[0, 0, 1, 0.90])
-    fig.legend(handles=h, loc="upper left", bbox_to_anchor=(0.01, 0.955),
-               ncol=len(h), fontsize=9, framealpha=0.9, borderaxespad=0.3,
+    fig.legend(handles=h, loc="upper left", bbox_to_anchor=(0.01, 0.965),
+               ncol=min(len(h), 7), fontsize=8, framealpha=0.9, borderaxespad=0.3,
                columnspacing=1.0, handlelength=2.4)
     fig.suptitle(titulo, fontsize=13, x=0.5, y=0.995)
     fig.savefig(arqsaida, dpi=130); plt.close(fig); print(f"  {arqsaida}")

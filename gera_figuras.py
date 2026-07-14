@@ -37,11 +37,12 @@ def figuras_componente(comp, saida):
             dfc, [r for r in regd if r in dfc.regiao.unique()], unidade,
             f"{nome}: BIAS/MAE/RMSE/SCORR x prazo (dominio)",
             os.path.join(saida, f"fig_continuas_dominio_{nome}.png"))
-        regbr = [r for r in N.CAIXAS_BR.keys() if r in dfc.regiao.unique()]
+        dom = set(regd) | {"Todo", "Continente", "Oceano"}
+        regbr = [r for r in dfc.regiao.unique() if r not in dom]   # bacias hidrog.
         if regbr:
             N.plota_continuas_regiao(
                 dfc, regbr, unidade,
-                f"{nome}: BIAS/MAE/RMSE/SCORR x prazo (regioes BR)",
+                f"{nome}: BIAS/MAE/RMSE/SCORR x prazo (grandes bacias hidrograficas)",
                 os.path.join(saida, f"fig_continuas_regioes_{nome}.png"))
 
     dfk = comp.get("categoricas")
