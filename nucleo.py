@@ -149,7 +149,11 @@ CAIXAS_BR = {
 }
 
 
+_AVISO_LANDMASK = False
+
+
 def constroi_mascaras(lats, lons, caixas=None):
+    global _AVISO_LANDMASK
     caixas = CAIXAS_BR if caixas is None else caixas
     LON, LAT = np.meshgrid(lons, lats)
     masks = {"Todo": np.ones(LAT.shape, dtype=bool)}
@@ -161,8 +165,10 @@ def constroi_mascaras(lats, lons, caixas=None):
         masks["Oceano"] = ~land
         tem_terra = True
     except Exception as e:
-        print(f"  [aviso] global_land_mask indisponivel ({e}); "
-              f"Continente/Oceano ignorados.")
+        if not _AVISO_LANDMASK:       # avisa uma unica vez
+            print(f"  [aviso] global_land_mask indisponivel ({e}); "
+                  f"Continente/Oceano ignorados. Instale: pip install global-land-mask")
+            _AVISO_LANDMASK = True
     for nome, (la0, la1, lo0, lo1) in caixas.items():
         masks[nome] = (LAT >= la0) & (LAT <= la1) & (LON >= lo0) & (LON <= lo1)
     return masks, tem_terra

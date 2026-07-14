@@ -445,7 +445,11 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.jobs is not None and args.jobs <= 0:
         import multiprocessing as mp
-        args.jobs = mp.cpu_count()
+        # limita o padrao: cada worker abre a sua propria referencia (ERA5/MERGE);
+        # dezenas de aberturas simultaneas saturam memoria/IO do Lustre.
+        args.jobs = min(mp.cpu_count(), 8)
+        print(f"[info] --jobs 0 -> usando {args.jobs} processos "
+              f"(limitado; para mais, passe --jobs N explicitamente)")
 
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
