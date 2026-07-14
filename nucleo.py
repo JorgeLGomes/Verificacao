@@ -16,8 +16,16 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
 
+import warnings
 import numpy as np
 import pandas as pd
+
+# silencia o aviso de download do cartopy (Natural Earth) quando offline
+try:
+    from cartopy.io import DownloadWarning as _DW
+    warnings.simplefilter("ignore", _DW)
+except Exception:
+    pass
 
 CAND_LAT = ["lat", "latitude", "y", "Y", "XLAT", "g0_lat_0", "rlat"]
 CAND_LON = ["lon", "longitude", "x", "X", "XLONG", "g0_lon_1", "rlon"]
@@ -474,18 +482,33 @@ def _add_bordas(ax):
                 pass
 
 
+def _bbox_dado(nmask, lats_asc, lons, pad=1.0):
+    """Caixa (lo0, lo1, la0, la1) que envolve os pontos com dado (n>0).
+    Recorta a figura ao dominio do modelo (fora dele o modelo e' NaN)."""
+    m = np.asarray(nmask) > 0
+    if not m.any():
+        return [lons.min(), lons.max(), lats_asc.min(), lats_asc.max()]
+    r = np.where(m.any(axis=1))[0]; c = np.where(m.any(axis=0))[0]
+    la0, la1 = lats_asc[r[0]], lats_asc[r[-1]]
+    lo0, lo1 = lons[c[0]], lons[c[-1]]
+    return [lo0 - pad, lo1 + pad, la0 - pad, la1 + pad]
+
+
 def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
                     difcmap="RdBu_r", ref_nome="Ref", bordas=True,
-                    meses_ok=(1, 2, 3)):
+                    meses_ok=(1, 2, 3), dominio=None):
     """Mapas de media diaria por dia de previsao. Colunas = [Todo periodo,
     meses em meses_ok]; linhas = [<ref> media, Prev media, Vies medio].
-    pormes: {mes_int: {sp, so, n}}. Fronteiras (paises + estados BR) via cartopy."""
+    pormes: {mes_int: {sp, so, n}}. Recorta ao dominio do modelo (auto, pela
+    area com dado) ou ao 'dominio' [lo0,lo1,la0,la1] informado. Fronteiras
+    (paises + estados BR) via cartopy quando disponivel."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     lats = np.asarray(grade_lats); lons = np.asarray(grade_lons)
     flip = lats[0] > lats[-1]
-    ext = [lons.min(), lons.max(), lats.min(), lats.max()]
+    lats_asc = lats[::-1] if flip else lats
+    ext = [lons.min(), lons.max(), lats_asc.min(), lats_asc.max()]
     meses = [m for m in sorted(pormes) if m in meses_ok]
     if not meses:
         return
@@ -517,6 +540,17 @@ def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
     if not np.isfinite(bmax) or bmax <= 0:
         bmax = 1.0
 
+    # dominio: informado ou auto (caixa da area com dado do modelo)
+    if dominio is not None:
+        crop = list(dominio)
+    else:
+        ntodo = np.asarray(cols[0][1]["n"], float)
+        if flip:
+            ntodo = ntodo[::-1]
+        crop = _bbox_dado(ntodo, lats_asc, lons)
+    crop[0] = max(crop[0], lons.min()); crop[1] = min(crop[1], lons.max())
+    crop[2] = max(crop[2], lats_asc.min()); crop[3] = min(crop[3], lats_asc.max())
+
     proj = None
     if bordas:
         try:
@@ -527,7 +561,12 @@ def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
 
     nrows, ncols = 3, len(cols)
     rot_linha = [f"{ref_nome} media", "Prev media", "Vies medio"]
-    fig = plt.figure(figsize=(3.4 * ncols + 1.6, 9.4))
+    # tamanho da figura proporcional ao aspecto do dominio (menos espaco vazio)
+    asp = (crop[1] - crop[0]) / max(crop[3] - crop[2], 1e-6)
+    asp = min(max(asp, 0.6), 2.2)
+    pw = 2.7 * asp; ph = 2.7
+    fig = plt.figure(figsize=(pw * ncols + 1.3, ph * nrows + 0.7),
+                     constrained_layout=True)
     axes = [[None] * ncols for _ in range(nrows)]
     ims = [None] * nrows
     for j, (ctit, _a) in enumerate(cols):
@@ -541,22 +580,24 @@ def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
                 ax = fig.add_subplot(nrows, ncols, k, projection=proj)
                 im = ax.imshow(campo, origin="lower", extent=ext, transform=proj,
                                cmap=cmap, vmin=vlim[0], vmax=vlim[1])
-                ax.set_extent(ext, crs=proj)
+                ax.set_extent(crop, crs=proj)
                 _add_bordas(ax)
             else:
                 ax = fig.add_subplot(nrows, ncols, k)
-                im = ax.imshow(campo, origin="lower", extent=ext, aspect="auto",
+                im = ax.imshow(campo, origin="lower", extent=ext,
                                cmap=cmap, vmin=vlim[0], vmax=vlim[1])
+                ax.set_xlim(crop[0], crop[1]); ax.set_ylim(crop[2], crop[3])
+                ax.set_aspect("auto")
             if i == 0:
-                ax.set_title(ctit)
+                ax.set_title(ctit, fontsize=11)
             if j == 0:
-                ax.text(-0.16, 0.5, rot_linha[i], transform=ax.transAxes,
+                ax.text(-0.12, 0.5, rot_linha[i], transform=ax.transAxes,
                         rotation=90, va="center", ha="center", fontsize=11)
             axes[i][j] = ax; ims[i] = im
     labs = [f"{ref_nome} ({unidade})", f"Prev ({unidade})", f"Vies ({unidade})"]
     for i in range(nrows):
-        fig.colorbar(ims[i], ax=axes[i], location="right", shrink=0.85,
-                     fraction=0.02, pad=0.02, label=labs[i])
+        fig.colorbar(ims[i], ax=axes[i], location="right", shrink=0.9,
+                     fraction=0.02, pad=0.01, label=labs[i])
     fig.suptitle(titulo, fontsize=13)
-    fig.savefig(arqsaida, dpi=120, bbox_inches="tight")
+    fig.savefig(arqsaida, dpi=120)
     plt.close(fig); print(f"  {arqsaida}")
