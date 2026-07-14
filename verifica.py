@@ -347,10 +347,14 @@ def _abre_ref(cfg, nome):
 
 
 def _regioes_de(ref, cfg):
+    rcfg = cfg.get("regioes", {})
     masks, tem = N.constroi_mascaras(ref.lats, ref.lons,
-                                     cfg.get("regioes", {}).get("caixas_br"))
+                                     rcfg.get("caixas_br"),
+                                     shapefile=rcfg.get("shapefile"),
+                                     campo_nome=rcfg.get("campo_nome"))
     regd = ["Todo"] + (["Continente", "Oceano"] if tem else [])
-    return masks, regd, regd + list(N.CAIXAS_BR.keys())
+    outras = [k for k in masks if k not in ("Todo", "Continente", "Oceano")]
+    return masks, regd, regd + outras
 
 
 def _tarefas(cfg, comp, max_rodadas):

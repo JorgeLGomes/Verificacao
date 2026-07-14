@@ -142,19 +142,60 @@ def passo_horas(tempos):
 # MASCARAS DE REGIAO
 # ==========================================================================
 CAIXAS_BR = {
-    "Amazonia": (-7.0, -1.0, -68.0, -58.0),
-    "Nordeste": (-12.0, -5.0, -42.0, -35.0),
-    "Sudeste":  (-24.0, -18.0, -48.0, -40.0),
-    "Sul":      (-32.0, -26.0, -57.0, -49.0),
+    "Norte":        (-14.0,  5.5, -74.0, -46.0),
+    "Nordeste":     (-18.5, -1.0, -48.7, -34.7),
+    "Centro-Oeste": (-24.1, -7.3, -61.6, -45.9),
+    "Sudeste":      (-25.3, -14.2, -53.1, -39.7),
+    "Sul":          (-33.8, -22.5, -57.7, -48.0),
 }
 
 
 _AVISO_LANDMASK = False
+_AVISO_SHP = False
+_SHP_CACHE = {}       # caminho -> lista de (nome, geometria)
 
 
-def constroi_mascaras(lats, lons, caixas=None):
-    global _AVISO_LANDMASK
-    caixas = CAIXAS_BR if caixas is None else caixas
+def slug_regiao(nome):
+    """Nome de regiao seguro para nome de arquivo (sem acento/espaco/barra)."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(nome))
+    s = s.encode("ascii", "ignore").decode("ascii")
+    for ch in " /\\": s = s.replace(ch, "_")
+    return s.strip("_")
+
+
+def _contains(geom, LON, LAT):
+    """Mascara booleana dos pontos (LON,LAT) dentro de geom (shapely)."""
+    try:                              # shapely >= 2.0
+        from shapely import contains_xy
+        return contains_xy(geom, LON, LAT)
+    except Exception:
+        from shapely.vectorized import contains as _c
+        return _c(geom, LON, LAT)
+
+
+def _le_shapefile(caminho, campo_nome):
+    """Le (uma vez, cacheado) as geometrias do shapefile -> [(nome, geom), ...]."""
+    if caminho in _SHP_CACHE:
+        return _SHP_CACHE[caminho]
+    from cartopy.io import shapereader as sr
+    regs = []
+    for rec in sr.Reader(caminho).records():
+        nome = rec.attributes.get(campo_nome)
+        if nome is None:              # campo inexistente: usa 1o atributo textual
+            for v in rec.attributes.values():
+                if isinstance(v, str):
+                    nome = v; break
+        regs.append((str(nome), rec.geometry))
+    _SHP_CACHE[caminho] = regs
+    return regs
+
+
+def constroi_mascaras(lats, lons, caixas=None, shapefile=None, campo_nome=None):
+    """Mascaras 2D por regiao. Se 'shapefile' for dado (e existir), usa poligonos
+    (campo 'campo_nome' como nome da regiao); senao usa as caixas retangulares.
+    Sempre inclui Todo e, se houver land mask, Continente/Oceano."""
+    global _AVISO_LANDMASK, _AVISO_SHP
     LON, LAT = np.meshgrid(lons, lats)
     masks = {"Todo": np.ones(LAT.shape, dtype=bool)}
     tem_terra = False
@@ -169,8 +210,25 @@ def constroi_mascaras(lats, lons, caixas=None):
             print(f"  [aviso] global_land_mask indisponivel ({e}); "
                   f"Continente/Oceano ignorados. Instale: pip install global-land-mask")
             _AVISO_LANDMASK = True
-    for nome, (la0, la1, lo0, lo1) in caixas.items():
-        masks[nome] = (LAT >= la0) & (LAT <= la1) & (LON >= lo0) & (LON <= lo1)
+
+    usou_shp = False
+    if shapefile and os.path.isfile(shapefile):
+        try:
+            for nome, geom in _le_shapefile(shapefile, campo_nome):
+                m = _contains(geom, LON, LAT)
+                if m.any():
+                    masks[nome] = m       # so mantem regioes com pontos na grade
+            usou_shp = True
+        except Exception as e:
+            if not _AVISO_SHP:
+                print(f"  [aviso] falha ao ler shapefile '{shapefile}' ({e}); "
+                      f"usando caixas retangulares.")
+                _AVISO_SHP = True
+
+    if not usou_shp:                  # fallback: caixas retangulares
+        caixas = CAIXAS_BR if caixas is None else caixas
+        for nome, (la0, la1, lo0, lo1) in caixas.items():
+            masks[nome] = (LAT >= la0) & (LAT <= la1) & (LON >= lo0) & (LON <= lo1)
     return masks, tem_terra
 
 

@@ -33,12 +33,15 @@ mapas:
   bordas: true       # fronteiras de paises + estados do Brasil (cartopy)
 
 regioes:
-  # caixas das 4 regioes do relatorio (aproximadas; ajuste se tiver as oficiais)
+  # macrorregioes do Brasil (caixas retangulares aproximadas: lat_min, lat_max,
+  # lon_min, lon_max). Retangulos se sobrepoem um pouco por serem uma
+  # aproximacao de fronteiras irregulares; ajuste se tiver os limites oficiais.
   caixas_br:
-    Amazonia: [-7.0, -1.0, -68.0, -58.0]
-    Nordeste: [-12.0, -5.0, -42.0, -35.0]
-    Sudeste:  [-24.0, -18.0, -48.0, -40.0]
-    Sul:      [-32.0, -26.0, -57.0, -49.0]
+    Norte:        [-14.0,  5.5, -74.0, -46.0]
+    Nordeste:     [-18.5, -1.0, -48.7, -34.7]
+    Centro-Oeste: [-24.1, -7.3, -61.6, -45.9]
+    Sudeste:      [-25.3, -14.2, -53.1, -39.7]
+    Sul:          [-33.8, -22.5, -57.7, -48.0]
 
 # modelos comparados (comum a todos os componentes)
 modelos:

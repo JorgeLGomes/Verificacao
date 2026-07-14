@@ -48,7 +48,7 @@ COR_FONTE = {"jaci": "#1f77b4", "xc50": "#d62728", "ERA5": "black"}
 LS_FONTE = {"jaci": "-", "xc50": "--", "ERA5": ":"}
 MK_FONTE = {"jaci": "o", "xc50": "s", "ERA5": "^"}
 ORDEM_REG = ["Todo", "Continente", "Oceano",
-             "Amazonia", "Nordeste", "Sudeste", "Sul"]
+             "Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
 
 
 def _assinatura_grade(lats, lons):
@@ -56,13 +56,17 @@ def _assinatura_grade(lats, lons):
             float(lons[0]), float(lons[-1]))
 
 
-def _get_masks(lats, lons, caixas, regioes_sel, cache):
-    """Mascaras 2D (bool) por regiao, cacheadas por assinatura de grade."""
+def _get_masks(lats, lons, rcfg, sel_norm, cache):
+    """Mascaras 2D (bool) por regiao, cacheadas por assinatura de grade.
+    Usa poligonos do shapefile (rcfg['shapefile']) se definido, senao caixas."""
     sig = _assinatura_grade(lats, lons)
     if sig not in cache:
-        masks, _ = N.constroi_mascaras(np.asarray(lats), np.asarray(lons), caixas)
-        if regioes_sel:
-            masks = {k: v for k, v in masks.items() if k in regioes_sel}
+        masks, _ = N.constroi_mascaras(
+            np.asarray(lats), np.asarray(lons), rcfg.get("caixas_br"),
+            shapefile=rcfg.get("shapefile"), campo_nome=rcfg.get("campo_nome"))
+        if sel_norm:
+            masks = {k: v for k, v in masks.items()
+                     if N.slug_regiao(k).upper() in sel_norm}
         cache[sig] = masks
     return cache[sig]
 
@@ -90,10 +94,10 @@ def _campo_np(ds, v, latn, lonn, tn):
     return da.values.astype(float)
 
 
-def _prep_era5(ref, e5, unidade, caixas, regioes_sel, cache):
+def _prep_era5(ref, e5, unidade, rcfg, sel_norm, cache):
     """Series de dominio do ERA5 por regiao (uma leitura, todas as regioes)."""
     var = e5.get("var")
-    masks = _get_masks(ref.lats, ref.lons, caixas, regioes_sel, cache)
+    masks = _get_masks(ref.lats, ref.lons, rcfg, sel_norm, cache)
     da = ref.ds[var]
     sel = {d: 0 for d in da.dims if d not in (ref.latn, ref.lonn) and d != getattr(ref, "tn", None)}
     # descobre o nome do tempo do ERA5
@@ -114,12 +118,11 @@ def _prep_era5(ref, e5, unidade, caixas, regioes_sel, cache):
     return med, te5
 
 
-def _acumula_chunk(cfg, var, unidade, e5, leads_alvo, regioes_sel, tarefas):
+def _acumula_chunk(cfg, var, unidade, e5, leads_alvo, sel_norm, tarefas):
     """Acumula soma/cont de (fonte,regiao,lead,hora) para uma lista de tarefas
     (modelo, mspec, run). Abre a SUA propria referencia ERA5 (uma vez)."""
     ref = V.RefEra5(cfg["referencias"]["era5"]["arquivo"])
-    caixas = {k: tuple(v) for k, v in
-              cfg.get("regioes", {}).get("caixas_br", {}).items()} or None
+    rcfg = cfg.get("regioes", {})     # caixas_br / shapefile / campo_nome
     cache = {}                 # assinatura de grade -> masks
     e5_med = None; te5 = None  # series ERA5 por regiao (uma vez)
     soma = {}; cont = {}
@@ -151,10 +154,10 @@ def _acumula_chunk(cfg, var, unidade, e5, leads_alvo, regioes_sel, tarefas):
         except Exception as ex:
             print(f"  [{run}] erro: {ex}"); continue
         ds.close()
-        masks = _get_masks(lats, lons, caixas, regioes_sel, cache)
+        masks = _get_masks(lats, lons, rcfg, sel_norm, cache)
         med_reg = _medias_regioes(arr, masks)
         if e5_med is None:
-            e5_med, te5 = _prep_era5(ref, e5, unidade, caixas, regioes_sel, cache)
+            e5_med, te5 = _prep_era5(ref, e5, unidade, rcfg, sel_norm, cache)
         for it, valido in enumerate(tempos):
             fh = (valido - pd.Timestamp(init)) / timedelta(hours=1)
             if fh <= 0:
@@ -181,7 +184,8 @@ def calcula(cfg, args, saida):
     unidade = comp.get("unidade", "")
     e5 = comp.get("era5", {})
     leads_alvo = set(args.leads)
-    regioes_sel = set(args.regioes) if args.regioes else None
+    sel_norm = ({N.slug_regiao(r).upper() for r in args.regioes}
+                if args.regioes else None)
 
     tarefas = []
     for modelo, mspec in comp["modelos"].items():
