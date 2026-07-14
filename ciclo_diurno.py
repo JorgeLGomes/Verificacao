@@ -61,7 +61,7 @@ def _rotulo_regiao(regiao):
     """Texto da regiao para o titulo do grafico."""
     if regiao in REG_DOMINIO:
         return REG_DOMINIO[regiao]
-    return f"grande bacia hidrografica: {regiao}"
+    return f"macro bacia hidrografica: {regiao}"
 
 
 def _carrega_geoms(rcfg):
@@ -138,7 +138,7 @@ def _mapa_regiao(ax, tipo, geoms, regiao, dom=None):
         ax.set_xlim(min(xs) - mx, max(xs) + mx)
         ax.set_ylim(min(ys) - my, max(ys) + my)
     ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
-    ax.set_title(f"bacia: {regiao}", fontsize=9)
+    ax.set_title(f"macro bacia: {regiao}", fontsize=9)
 
 
 def _assinatura_grade(lats, lons):

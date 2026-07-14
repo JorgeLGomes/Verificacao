@@ -42,7 +42,7 @@ def figuras_componente(comp, saida):
         if regbr:
             N.plota_continuas_regiao(
                 dfc, regbr, unidade,
-                f"{nome}: BIAS/MAE/RMSE/SCORR x prazo (grandes bacias hidrograficas)",
+                f"{nome}: BIAS/MAE/RMSE/SCORR x prazo (macro bacias hidrograficas)",
                 os.path.join(saida, f"fig_continuas_regioes_{nome}.png"))
 
     dfk = comp.get("categoricas")
