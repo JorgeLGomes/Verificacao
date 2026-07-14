@@ -6,7 +6,9 @@
 # cada componente com --max-rodadas 1 para um teste rapido).
 # =====================================================================
 
-base: /lustre/projetos/grpeta/Team/jorge.gomes/convert2nc   # raiz com nc/, nc_oper/, nc_merge/
+base: /lustre/projetos/grpeta/Team/jorge.gomes/convert2nc   # raiz com nc/, nc_oper/, nc_merge/ (precip NetCDF)
+# raiz do Eta em binctl (GrADS) para os campos continuos: <binctl_base>/<AAAAMMDDHH>/<member>/<ctl>
+binctl_base: /lustre/projetos/grpeta/Team/jorge.gomes/Eta_install/out/ams_08km/binctl
 saida: resultados_uni
 regrid: linear                # linear (bilinear) ou nearest
 init_glob: "*"                # filtra rodadas (ex.: "202601*")
@@ -49,6 +51,10 @@ referencias:
     reader: netcdf
     arquivo: /lustre/projetos/grpeta/Team/jorge.gomes/ERA5/data_stream-oper_stepType-instant.nc
 
+# Modelo Eta em binctl (E03) para os campos continuos. Cada componente declara
+# o modelo com: reader: binctl, member: E03, ctl: "Eta08_E03_{init}.ctl" e a
+# variavel/unidade especifica. Ajuste 'member'/'ctl' se o seu layout diferir.
+
 # =====================================================================
 # COMPONENTES (o que verificar)
 # =====================================================================
@@ -72,8 +78,8 @@ componentes:
     metricas: [continuas]
     era5: {var: t2m, unidade: K}
     modelos:
-      jaci: {subdir: nc,      reader: netcdf, padrao: "TP2M_*.nc", var: tp2m, unidade: K}
-      xc50: {subdir: nc_oper, reader: netcdf, padrao: "TP2M_*.nc", var: tp2m, unidade: K}
+      jaci: {subdir: nc,      reader: netcdf, padrao: "tp2m_*.nc", var: null, unidade: K}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "tp2m_*.nc", var: null, unidade: K}
 
   pnmm:
     tipo: instantaneo
@@ -82,8 +88,9 @@ componentes:
     metricas: [continuas]
     era5: {var: msl, unidade: Pa}
     modelos:
-      jaci: {subdir: nc,      reader: netcdf, padrao: "PSLM_*.nc", var: pslm, unidade: hPa}
-      xc50: {subdir: nc_oper, reader: netcdf, padrao: "PSLM_*.nc", var: pslm, unidade: hPa}
+      # ATENCAO: pslm do jaci (Eta) costuma vir em hPa; do xc50 (grib2 prmsl) em Pa.
+      jaci: {subdir: nc,      reader: netcdf, padrao: "pslm_*.nc", var: null, unidade: hPa}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "pslm_*.nc", var: null, unidade: Pa}
 
   u10:
     tipo: instantaneo
@@ -92,8 +99,8 @@ componentes:
     metricas: [continuas]
     era5: {var: u10, unidade: m/s}
     modelos:
-      jaci: {subdir: nc,      reader: netcdf, padrao: "U10M_*.nc", var: u10m, unidade: m/s}
-      xc50: {subdir: nc_oper, reader: netcdf, padrao: "U10M_*.nc", var: u10m, unidade: m/s}
+      jaci: {subdir: nc,      reader: netcdf, padrao: "u10m_*.nc", var: null, unidade: m/s}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "u10m_*.nc", var: null, unidade: m/s}
 
   v10:
     tipo: instantaneo
@@ -102,8 +109,8 @@ componentes:
     metricas: [continuas]
     era5: {var: v10, unidade: m/s}
     modelos:
-      jaci: {subdir: nc,      reader: netcdf, padrao: "V10M_*.nc", var: v10m, unidade: m/s}
-      xc50: {subdir: nc_oper, reader: netcdf, padrao: "V10M_*.nc", var: v10m, unidade: m/s}
+      jaci: {subdir: nc,      reader: netcdf, padrao: "v10m_*.nc", var: null, unidade: m/s}
+      xc50: {subdir: nc_oper, reader: netcdf, padrao: "v10m_*.nc", var: null, unidade: m/s}
 
   # magnitude do vento a 10 m = sqrt(u^2 + v^2) (derivada de u e v)
   wspd10:
@@ -118,14 +125,14 @@ componentes:
         subdir: nc
         reader: netcdf
         unidade: m/s
-        u: {padrao: "U10M_*.nc", var: u10m}
-        v: {padrao: "V10M_*.nc", var: v10m}
+        u: {padrao: "u10m_*.nc", var: null}
+        v: {padrao: "v10m_*.nc", var: null}
       xc50:
         subdir: nc_oper
         reader: netcdf
         unidade: m/s
-        u: {padrao: "U10M_*.nc", var: u10m}
-        v: {padrao: "V10M_*.nc", var: v10m}
+        u: {padrao: "u10m_*.nc", var: null}
+        v: {padrao: "v10m_*.nc", var: null}
 
   # ----- geopotencial em 500 hPa: preparado, ATIVE quando tiver os dados -----
   # Requer ERA5 em niveis de pressao (variavel z, nivel 500) e o campo 3D do

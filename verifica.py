@@ -114,8 +114,33 @@ def _lista_rodadas(base, subdir, glob_init="*", limite=0):
 
 
 def _acha_arq(base, subdir, run, padrao):
-    achados = sorted(glob.glob(os.path.join(base, subdir, run, padrao)))
-    return achados[0] if achados else None
+    d = os.path.join(base, subdir, run)
+    achados = sorted(glob.glob(os.path.join(d, padrao)))
+    if achados:
+        return achados[0]
+    # fallback case-insensitive (ex.: TP2M_*.nc casa tp2m_*.nc)
+    import fnmatch
+    if os.path.isdir(d):
+        pl = padrao.lower()
+        cand = sorted(f for f in os.listdir(d) if fnmatch.fnmatch(f.lower(), pl))
+        if cand:
+            return os.path.join(d, cand[0])
+    return None
+
+
+def _resolve_arq(cfg, mspec, modelo, run, reader, padrao=None):
+    """Caminho do arquivo do modelo para a rodada.
+    - netcdf: <base>/<subdir>/<run>/<padrao>  (glob)
+    - binctl: <binctl_base>/<run>/<member>/<ctl com {init}>  (GrADS .ctl)"""
+    if reader == "binctl":
+        base = mspec.get("binctl_base") or cfg.get("binctl_base") or cfg["base"]
+        member = mspec.get("member", "")
+        ctlname = mspec["ctl"].format(init=run)
+        p = (os.path.join(base, run, member, ctlname) if member
+             else os.path.join(base, run, ctlname))
+        return p if os.path.exists(p) else None
+    subdir = mspec.get("subdir") or cfg["modelos"][modelo]["subdir"]
+    return _acha_arq(cfg["base"], subdir, run, padrao)
 
 
 def campos_instantaneos(arq, spec, leads_horas, init, reader="netcdf"):
@@ -233,8 +258,11 @@ def _campos_magnitude(cfg, comp, modelo, run, leads_horas, init):
     uu = mspec["u"]; vv = mspec["v"]; para = comp.get("unidade")
     uspec = {"var": uu.get("var"), "unidade": mspec.get("unidade"), "para": para}
     vspec = {"var": vv.get("var"), "unidade": mspec.get("unidade"), "para": para}
-    uarq = _acha_arq(cfg["base"], subdir, run, uu["padrao"])
-    varq = _acha_arq(cfg["base"], subdir, run, vv["padrao"])
+    if reader == "binctl":                      # u e v no MESMO .ctl
+        uarq = varq = _resolve_arq(cfg, mspec, modelo, run, "binctl")
+    else:
+        uarq = _resolve_arq(cfg, mspec, modelo, run, reader, uu["padrao"])
+        varq = _resolve_arq(cfg, mspec, modelo, run, reader, vv["padrao"])
     if uarq is None or varq is None:
         return []
     uc = campos_instantaneos(uarq, uspec, leads_horas, init, reader)
@@ -261,11 +289,10 @@ def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
         if magnitude:
             campos = _campos_magnitude(cfg, comp, modelo, run, leads_horas, init)
         else:
-            subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
             reader = mspec.get("reader", cfg["modelos"][modelo].get("reader", "netcdf"))
             spec = {"var": mspec.get("var"), "unidade": mspec.get("unidade"),
                     "para": comp.get("unidade"), "nivel": mspec.get("nivel")}
-            arq = _acha_arq(cfg["base"], subdir, run, mspec["padrao"])
+            arq = _resolve_arq(cfg, mspec, modelo, run, reader, mspec.get("padrao"))
             campos = campos_instantaneos(arq, spec, leads_horas, init, reader) if arq else []
     except Exception as ex:
         print(f"    [{run}] erro: {ex}"); return
@@ -315,9 +342,16 @@ def _regioes_de(ref, cfg):
 def _tarefas(cfg, comp, max_rodadas):
     T = []
     for modelo, mspec in comp["modelos"].items():
-        subdir = mspec.get("subdir", cfg["modelos"][modelo]["subdir"])
-        for run in _lista_rodadas(cfg["base"], subdir, cfg.get("init_glob", "*"),
-                                  max_rodadas):
+        reader = mspec.get("reader",
+                           cfg["modelos"].get(modelo, {}).get("reader", "netcdf"))
+        if reader == "binctl":
+            base = mspec.get("binctl_base") or cfg.get("binctl_base") or cfg["base"]
+            runs = _lista_rodadas(base, "", cfg.get("init_glob", "*"), max_rodadas)
+        else:
+            subdir = mspec.get("subdir") or cfg["modelos"][modelo]["subdir"]
+            runs = _lista_rodadas(cfg["base"], subdir, cfg.get("init_glob", "*"),
+                                  max_rodadas)
+        for run in runs:
             T.append((modelo, run))
     return T
 
@@ -422,6 +456,16 @@ def main(argv=None):
         masks, regd, regioes = _regioes_de(ref, cfg)
         resultado[nome] = roda_componente(cfg, comp, ref, masks, regioes, args)
         resultado[nome]["regioes_dominio"] = regd
+        # aviso claro quando o componente nao casou nenhum par
+        dfc = resultado[nome].get("continuas")
+        npares = 0 if (dfc is None or dfc.empty) else int(dfc["n"].sum())
+        if npares == 0:
+            print(f"  *** ATENCAO: componente '{nome}' NAO casou nenhum par. "
+                  f"Confira em config: padrao/var dos arquivos do modelo, o "
+                  f"arquivo/variaveis do ERA5, leads_horas e o reader. ***")
+        else:
+            print(f"  {nome}: {npares} pontos-caso casados; "
+                  f"mapas: {len(resultado[nome].get('mapas', {}))}")
 
         # CSVs por componente
         r = resultado[nome]
