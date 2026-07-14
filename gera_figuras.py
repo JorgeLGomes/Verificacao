@@ -113,6 +113,11 @@ def main(argv=None):
         if nome not in res:
             print(f"[aviso] componente '{nome}' nao esta no binario"); continue
         comp = dict(res[nome]); comp["nome"] = nome
+        # tabelas podem vir como dict-of-lists (binario portavel) -> DataFrame
+        for key in ("continuas", "categoricas", "fss"):
+            v = comp.get(key)
+            if isinstance(v, dict):
+                comp[key] = pd.DataFrame(v)
         print(f"Componente {nome}:")
         figuras_componente(comp, saida)
     print(f"\nFiguras em: {os.path.abspath(saida)}")

@@ -491,8 +491,18 @@ def main(argv=None):
     for r in refs.values():
         r.close()
 
+    # binario PORTAVEL: tabelas como dict-of-lists (evita picklar dtypes do
+    # pandas, que quebram entre versoes). Reconstruidas em DataFrame na leitura.
+    serial = {}
+    for nome, r in resultado.items():
+        rr = dict(r)
+        for key in ("continuas", "categoricas", "fss"):
+            df = rr.get(key)
+            rr[key] = (None if df is None or getattr(df, "empty", True)
+                       else df.to_dict("list"))
+        serial[nome] = rr
     with open(os.path.join(saida, "verificacao.pkl"), "wb") as f:
-        pickle.dump(resultado, f, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(serial, f, protocol=4)
     print(f"\nBinario e CSVs em: {os.path.abspath(saida)}")
     print("Gere as figuras com: python gera_figuras.py --binario "
           f"{os.path.join(saida, 'verificacao.pkl')}")
