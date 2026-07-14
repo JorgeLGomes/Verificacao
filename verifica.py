@@ -201,6 +201,16 @@ def _meses_ok(cfg):
     return set(mc.get("meses", [1, 2, 3])) | {0}
 
 
+def _periodo_ok(cfg, valido):
+    """Filtro GLOBAL de meses (afeta TODAS as metricas: curvas + mapas).
+    cfg['meses'] = lista de meses a verificar (default Jan/Fev/Mar). Vazio/None
+    = sem filtro (usa todo o periodo dos dados)."""
+    ms = cfg.get("meses", [1, 2, 3])
+    if not ms:
+        return True
+    return int(pd.Timestamp(valido).month) in set(ms)
+
+
 def _acumula_mapa(cfg, mapas, ref, modelo, lead, valido, P, O):
     if not _quer_mapa(cfg, lead):
         return
@@ -234,6 +244,8 @@ def _run_precip(cfg, comp, ref, masks, regioes, modelo, run,
         print(f"    [{run}] erro: {e}"); return
     for jw in janelas:
         if max_lead and jw.lead > max_lead:
+            continue
+        if not _periodo_ok(cfg, jw.fim):        # so meses completos (Jan/Fev/Mar)
             continue
         co = ref.campo(jw.fim)
         if co is None:
@@ -298,6 +310,8 @@ def _run_instant(cfg, comp, ref, masks, regioes, modelo, run,
         print(f"    [{run}] erro: {ex}"); return
     for valido, lh, ld, campo in campos:
         if max_lead and ld > max_lead:
+            continue
+        if not _periodo_ok(cfg, valido):        # so meses completos (Jan/Fev/Mar)
             continue
         if magnitude:
             co = ref.campo_mag(valido, e5.get("u"), e5.get("v"),

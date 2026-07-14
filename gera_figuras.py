@@ -69,6 +69,8 @@ def figuras_componente(comp, saida):
     if chaves and isinstance(chaves[0], tuple):
         modelos = sorted({k[0] for k in chaves})
         leads = sorted({k[1] for k in chaves})
+        # escala de cor UNICA por variavel (comum a jaci/XC50/referencia)
+        vmin, vmax, bmax = N.escala_global(mapas)
         for modelo in modelos:
             for lead in leads:
                 pormes = {k[2]: mapas[k] for k in chaves
@@ -80,7 +82,8 @@ def figuras_componente(comp, saida):
                     grade["lats"], grade["lons"], pormes, unidade,
                     f"{nome} - {modelo} - D+{lead} (media diaria por periodo)",
                     os.path.join(saida, f"mapa_{nome}_{modelo}_D{lead}.png"),
-                    difcmap=difcmap, ref_nome=ref_nome)
+                    difcmap=difcmap, ref_nome=ref_nome,
+                    vminmax=(vmin, vmax), bmax_fixo=bmax)
     else:                                      # compat: formato antigo
         for modelo, arrs in mapas.items():
             if "sdif" in arrs and np.asarray(arrs["n"]).sum() > 0:

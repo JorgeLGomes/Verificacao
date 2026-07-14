@@ -494,9 +494,38 @@ def _bbox_dado(nmask, lats_asc, lons, pad=1.0):
     return [lo0 - pad, lo1 + pad, la0 - pad, la1 + pad]
 
 
+def escala_global(mapas_comp, meses_ok=(1, 2, 3)):
+    """Escala de cor comum (vmin, vmax, bmax) para um componente, a partir de
+    TODOS os mapas (modelos, prazos, meses). Garante o mesmo range para jaci,
+    XC50 e a referencia (MERGE/ERA5) na mesma variavel."""
+    campos, vieses = [], []
+    for k, a in mapas_comp.items():
+        mes = k[2] if isinstance(k, tuple) and len(k) >= 3 else 0
+        if mes not in meses_ok and mes != 0:
+            continue
+        n = np.asarray(a["n"], float)
+        sp = np.asarray(a["sp"], float); so = np.asarray(a["so"], float)
+        with np.errstate(invalid="ignore"):
+            rm = np.where(n > 0, so / n, np.nan)
+            pm = np.where(n > 0, sp / n, np.nan)
+            bm = np.where(n > 0, (sp - so) / n, np.nan)
+        campos.append(rm[np.isfinite(rm)]); campos.append(pm[np.isfinite(pm)])
+        vieses.append(np.abs(bm[np.isfinite(bm)]))
+    cc = np.concatenate(campos) if campos else np.array([])
+    vv = np.concatenate(vieses) if vieses else np.array([])
+    vmin = float(np.nanpercentile(cc, 1)) if cc.size else 0.0
+    vmax = float(np.nanpercentile(cc, 99)) if cc.size else 1.0
+    if not np.isfinite(vmax) or vmax <= vmin:
+        vmin, vmax = 0.0, 1.0
+    bmax = float(np.nanpercentile(vv, 99)) if vv.size else 1.0
+    if not np.isfinite(bmax) or bmax <= 0:
+        bmax = 1.0
+    return vmin, vmax, bmax
+
+
 def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
                     difcmap="RdBu_r", ref_nome="Ref", bordas=True,
-                    meses_ok=(1, 2, 3), dominio=None):
+                    meses_ok=(1, 2, 3), dominio=None, vminmax=None, bmax_fixo=None):
     """Mapas de media diaria por dia de previsao. Colunas = [Todo periodo,
     meses em meses_ok]; linhas = [<ref> media, Prev media, Vies medio].
     pormes: {mes_int: {sp, so, n}}. Recorta ao dominio do modelo (auto, pela
@@ -527,18 +556,24 @@ def plota_mapas_mes(grade_lats, grade_lons, pormes, unidade, titulo, arqsaida,
         return rm, pm, bm
 
     dados = [campos(a) for _, a in cols]
-    rp = np.concatenate([np.concatenate([d[0][np.isfinite(d[0])],
-                                         d[1][np.isfinite(d[1])]]) for d in dados]) \
-        if dados else np.array([])
-    bb = np.concatenate([np.abs(d[2][np.isfinite(d[2])]) for d in dados]) \
-        if dados else np.array([])
-    vmin = float(np.nanpercentile(rp, 1)) if rp.size else 0.0
-    vmax = float(np.nanpercentile(rp, 99)) if rp.size else 1.0
-    if not np.isfinite(vmax) or vmax <= vmin:
-        vmin, vmax = 0.0, 1.0
-    bmax = float(np.nanpercentile(bb, 99)) if bb.size else 1.0
-    if not np.isfinite(bmax) or bmax <= 0:
-        bmax = 1.0
+    if vminmax is not None:            # escala fixa (comum a jaci/XC50/ref)
+        vmin, vmax = vminmax
+    else:
+        rp = np.concatenate([np.concatenate([d[0][np.isfinite(d[0])],
+                                             d[1][np.isfinite(d[1])]]) for d in dados]) \
+            if dados else np.array([])
+        vmin = float(np.nanpercentile(rp, 1)) if rp.size else 0.0
+        vmax = float(np.nanpercentile(rp, 99)) if rp.size else 1.0
+        if not np.isfinite(vmax) or vmax <= vmin:
+            vmin, vmax = 0.0, 1.0
+    if bmax_fixo is not None:
+        bmax = bmax_fixo
+    else:
+        bb = np.concatenate([np.abs(d[2][np.isfinite(d[2])]) for d in dados]) \
+            if dados else np.array([])
+        bmax = float(np.nanpercentile(bb, 99)) if bb.size else 1.0
+        if not np.isfinite(bmax) or bmax <= 0:
+            bmax = 1.0
 
     # dominio: informado ou auto (caixa da area com dado do modelo)
     if dominio is not None:

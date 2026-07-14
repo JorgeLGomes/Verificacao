@@ -18,6 +18,10 @@ janelas_precip: [12, 0]
 # prazos (horas) para os campos instantaneos vs ERA5
 leads_horas: [24, 48, 72, 96, 120, 144, 168, 192, 216]
 
+# meses a verificar em TODAS as metricas (curvas + mapas): so meses completos
+# Jan/Fev/Mar. Vazio ([]) ou remova para usar todo o periodo dos dados.
+meses: [1, 2, 3]
+
 # mapas espaciais: media diaria por dia de previsao (prazo), separada por mes
 # (colunas Todo periodo / Jan / Fev / Mar ...). Cuidado com memoria/tamanho do
 # binario em grades grandes: restrinja 'leads' se necessario.
