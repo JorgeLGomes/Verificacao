@@ -5,7 +5,9 @@ ciclo_diurno.py — ciclo diurno medio de uma variavel, comparando jaci, XC50 e
 ERA5, separado por horizonte de previsao (D+n) E por regiao.
 
 Regioes (mesmas do resto do app, via nucleo.constroi_mascaras):
-  Todo, Continente, Oceano (land mask), Amazonia, Nordeste, Sudeste, Sul.
+  Todo, Continente, Oceano (land mask) + regioes de um shapefile
+  (regioes.shapefile no config; p.ex. as 12 Regioes Hidrograficas do Brasil).
+  Cada figura de regiao inclui um mini-mapa com a regiao em destaque.
 
 Fluxo:
   - calcula(): le os NetCDF do(s) modelo(s) + ERA5, acumula somas por
@@ -47,8 +49,63 @@ import verifica as V
 COR_FONTE = {"jaci": "#1f77b4", "xc50": "#d62728", "ERA5": "black"}
 LS_FONTE = {"jaci": "-", "xc50": "--", "ERA5": ":"}
 MK_FONTE = {"jaci": "o", "xc50": "s", "ERA5": "^"}
-ORDEM_REG = ["Todo", "Continente", "Oceano",
-             "Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+ORDEM_REG = ["Todo", "Continente", "Oceano"]   # demais regioes seguem o shapefile
+
+
+def _carrega_geoms(rcfg):
+    """Retorna (tipo, dict). tipo='shp' -> {nome: geometria shapely};
+    tipo='box' -> {nome: (la0,la1,lo0,lo1)}; ou (None, {})."""
+    shp = rcfg.get("shapefile")
+    if shp and os.path.isfile(shp):
+        try:
+            regs = N._le_shapefile(shp, rcfg.get("campo_nome"))
+            # simplifica p/ o mini-mapa (poligonos das RHs sao muito detalhados)
+            return "shp", {nome: geom.simplify(0.05, preserve_topology=False)
+                           for nome, geom in regs}
+        except Exception:
+            pass
+    caixas = rcfg.get("caixas_br") or {}
+    if caixas:
+        return "box", {k: tuple(v) for k, v in caixas.items()}
+    return None, {}
+
+
+def _desenha_geom(ax, geom, **kw):
+    gs = geom.geoms if geom.geom_type == "MultiPolygon" else [geom]
+    for g in gs:
+        x, y = g.exterior.xy
+        ax.fill(x, y, **kw)
+
+
+def _mapa_regiao(ax, tipo, geoms, regiao):
+    """Desenha o conjunto de regioes e destaca 'regiao' no eixo 'ax'."""
+    if not geoms:
+        ax.axis("off"); return
+    xs, ys = [], []
+    for nome, g in geoms.items():
+        if tipo == "shp":
+            b = g.bounds; xs += [b[0], b[2]]; ys += [b[1], b[3]]
+            _desenha_geom(ax, g, facecolor="#e6e6e6", edgecolor="#888",
+                          linewidth=0.4, zorder=1)
+        else:
+            la0, la1, lo0, lo1 = g; xs += [lo0, lo1]; ys += [la0, la1]
+            ax.fill([lo0, lo1, lo1, lo0], [la0, la0, la1, la1],
+                    facecolor="#e6e6e6", edgecolor="#888", linewidth=0.4, zorder=1)
+    dest = geoms.get(regiao)
+    if dest is not None:
+        if tipo == "shp":
+            _desenha_geom(ax, dest, facecolor="#d62728", edgecolor="#7a0000",
+                          linewidth=0.6, alpha=0.85, zorder=3)
+        else:
+            la0, la1, lo0, lo1 = dest
+            ax.fill([lo0, lo1, lo1, lo0], [la0, la0, la1, la1],
+                    facecolor="#d62728", edgecolor="#7a0000", alpha=0.85, zorder=3)
+    if xs and ys:
+        mx = (max(xs) - min(xs)) * 0.03 + 0.5; my = (max(ys) - min(ys)) * 0.03 + 0.5
+        ax.set_xlim(min(xs) - mx, max(xs) + mx)
+        ax.set_ylim(min(ys) - my, max(ys) + my)
+    ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
+    ax.set_title(f"regiao: {regiao}", fontsize=9)
 
 
 def _assinatura_grade(lats, lons):
@@ -210,7 +267,7 @@ def calcula(cfg, args, saida):
         import multiprocessing as mp
         nj = min(jobs, len(tarefas))
         chunks = [tarefas[i::nj] for i in range(nj)]      # round-robin
-        payloads = [(cfg, args.var, unidade, e5, leads_alvo, regioes_sel, ch)
+        payloads = [(cfg, args.var, unidade, e5, leads_alvo, sel_norm, ch)
                     for ch in chunks]
         print(f"  paralelo: {nj} processos ({len(tarefas)} tarefas)")
         with mp.Pool(nj) as pool:
@@ -219,7 +276,7 @@ def calcula(cfg, args, saida):
     else:
         print(f"  sequencial ({len(tarefas)} tarefas)")
         _merge(_acumula_chunk(cfg, args.var, unidade, e5, leads_alvo,
-                              regioes_sel, tarefas))
+                              sel_norm, tarefas))
 
     df = pd.DataFrame([dict(fonte=k[0], regiao=k[1], lead=k[2], hora=k[3],
                             valor=soma[k] / cont[k], n=cont[k]) for k in soma])
@@ -230,18 +287,20 @@ def calcula(cfg, args, saida):
     return df, unidade
 
 
-def plota(df, var, unidade, saida):
+def plota(df, var, unidade, saida, rcfg=None):
     if df.empty:
         print("Sem dados para plotar."); return
     regioes = [r for r in ORDEM_REG if r in df.regiao.unique()]
     regioes += [r for r in df.regiao.unique() if r not in regioes]
     fontes_all = [f for f in ["jaci", "xc50", "ERA5"] if f in df.fonte.unique()]
+    tipo, geoms = _carrega_geoms(rcfg or {})
     for regiao in regioes:
         dr = df[df.regiao == regiao]
         if dr.empty:
             continue
         leads = sorted(dr.lead.unique())
-        ncol = min(3, len(leads)); nrow = int(np.ceil(len(leads) / ncol))
+        nslots = len(leads) + 1                    # +1 painel p/ o mini-mapa
+        ncol = min(3, nslots); nrow = int(np.ceil(nslots / ncol))
         fig, axs = plt.subplots(nrow, ncol, figsize=(4.8 * ncol, 3.4 * nrow),
                                 squeeze=False)
         for k, lead in enumerate(leads):
@@ -255,7 +314,10 @@ def plota(df, var, unidade, saida):
             ax.set_title(f"D+{lead}"); ax.set_xlabel("Hora (UTC)")
             ax.set_ylabel(f"{var} ({unidade})"); ax.grid(alpha=0.3)
             ax.set_xticks(sorted(dr.hora.unique()))
-        for k in range(len(leads), nrow * ncol):
+        # mini-mapa da regiao no proximo slot; demais slots desligados
+        ax_map = axs.ravel()[len(leads)]
+        _mapa_regiao(ax_map, tipo, geoms, regiao)
+        for k in range(len(leads) + 1, nrow * ncol):
             axs.ravel()[k].axis("off")
         h = [plt.Line2D([0], [0], color=COR_FONTE[f], linestyle=LS_FONTE[f],
                         marker=MK_FONTE[f], label=f) for f in fontes_all]
@@ -264,7 +326,7 @@ def plota(df, var, unidade, saida):
                    ncol=len(h), fontsize=10, framealpha=0.9)
         fig.suptitle(f"Ciclo diurno medio - {var} - {regiao} - por prazo",
                      fontsize=13, x=0.5, y=0.995)
-        cam = os.path.join(saida, f"ciclo_diurno_{var}_{regiao}.png")
+        cam = os.path.join(saida, f"ciclo_diurno_{var}_{N.slug_regiao(regiao)}.png")
         fig.savefig(cam, dpi=130); plt.close(fig)
         print(f"Figura: {cam}")
 
@@ -299,6 +361,7 @@ def main(argv=None):
     saida = args.saida or cfg.get("saida", "resultados_uni")
     os.makedirs(saida, exist_ok=True)
     unidade = comps[args.var].get("unidade", "")
+    rcfg = cfg.get("regioes", {})
     csv = os.path.join(saida, f"ciclo_diurno_{args.var}.csv")
     if args.replot:
         if not os.path.isfile(csv):
@@ -309,11 +372,12 @@ def main(argv=None):
         if args.leads:
             df = df[df.lead.isin(args.leads)]
         if args.regioes:
-            df = df[df.regiao.isin(args.regioes)]
-        plota(df, args.var, unidade, saida)
+            sel = {N.slug_regiao(r).upper() for r in args.regioes}
+            df = df[df.regiao.map(lambda r: N.slug_regiao(r).upper() in sel)]
+        plota(df, args.var, unidade, saida, rcfg)
         return 0
     df, unidade = calcula(cfg, args, saida)
-    plota(df, args.var, unidade, saida)
+    plota(df, args.var, unidade, saida, rcfg)
     return 0
 
 

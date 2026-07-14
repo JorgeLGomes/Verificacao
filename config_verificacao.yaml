@@ -33,9 +33,14 @@ mapas:
   bordas: true       # fronteiras de paises + estados do Brasil (cartopy)
 
 regioes:
-  # macrorregioes do Brasil (caixas retangulares aproximadas: lat_min, lat_max,
-  # lon_min, lon_max). Retangulos se sobrepoem um pouco por serem uma
-  # aproximacao de fronteiras irregulares; ajuste se tiver os limites oficiais.
+  # Mascaramento por POLIGONO (shapefile). Se 'shapefile' existir, as regioes
+  # saem dele (campo 'campo_nome' = nome da regiao) e as caixas abaixo sao
+  # ignoradas. Caminho relativo ao diretorio de execucao (rode a partir da raiz
+  # do projeto). Aqui: 12 Regioes Hidrograficas (macro-RH) do Brasil.
+  shapefile: shp/macro_RH.shp
+  campo_nome: nm_macroRH
+  # Fallback (usado so se o shapefile nao for encontrado): caixas retangulares
+  # aproximadas das macrorregioes politicas (lat_min, lat_max, lon_min, lon_max).
   caixas_br:
     Norte:        [-14.0,  5.5, -74.0, -46.0]
     Nordeste:     [-18.5, -1.0, -48.7, -34.7]
