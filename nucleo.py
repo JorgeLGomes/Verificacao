@@ -377,7 +377,7 @@ def plota_por_prazo(dfk, col, ylab, titulo, arqsaida, ref1=False):
     if dfk.empty:
         return
     modelos = sorted(dfk.modelo.unique())
-    leads = sorted(dfk.lead.unique())[:9]
+    leads = sorted(dfk.lead.unique())        # todos os prazos (D+1..D+11)
     n = len(leads); ncol = 3; nrow = int(np.ceil(n / ncol))
     fig, axs = plt.subplots(nrow, ncol, figsize=(4.6 * ncol, 3.4 * nrow),
                             squeeze=False)
