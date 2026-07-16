@@ -382,6 +382,22 @@ def estilo(m):
     return ESTILO.get(m, "-"), MARCA.get(m, "o")
 
 
+_LS_CICLO = ["-", "--", "-.", ":"]
+_MK_CICLO = ["o", "s", "^", "D", "v", "P", "X", "*"]
+
+
+def estilos_modelos(modelos):
+    """Estilo distinto por experimento (N modelos): cor + traco + marcador.
+    Mantem jaci/xc50 com o estilo canonico; demais recebem de um ciclo."""
+    cores = _cor_modelo(modelos)
+    out = {}
+    for i, m in enumerate(modelos):
+        ls = ESTILO.get(m, _LS_CICLO[i % len(_LS_CICLO)])
+        mk = MARCA.get(m, _MK_CICLO[i % len(_MK_CICLO)])
+        out[m] = {"cor": cores[m], "ls": ls, "mk": mk}
+    return out
+
+
 def cores_limiar(limiares):
     import matplotlib.pyplot as plt
     if len(limiares) <= len(_PAL):
@@ -405,6 +421,7 @@ def plota_continuas_regiao(dfc, regioes, unidade, titulo, arqsaida):
     if d.empty:
         return
     modelos = sorted(d.modelo.unique())
+    est = estilos_modelos(modelos)          # traco/marcador distinto por experimento
     # cor por regiao: usa COR_REG quando existe, senao um ciclo (tab20)
     _pal = list(plt.get_cmap("tab20").colors)
     cores = {rg: (COR_REG.get(rg) or _pal[i % len(_pal)])
@@ -418,16 +435,15 @@ def plota_continuas_regiao(dfc, regioes, unidade, titulo, arqsaida):
                 sub = d[(d.regiao == rg) & (d.modelo == m)].sort_values("lead")
                 if sub.empty or sub[col].isna().all():
                     continue
-                ls, mk = estilo(m)
-                ax.plot(sub.lead, sub[col], ls, marker=mk,
+                ax.plot(sub.lead, sub[col], est[m]["ls"], marker=est[m]["mk"],
                         color=cores[rg], markersize=5, lw=1.8)
         ax.set_title(rot); ax.set_xlabel("Prazo de previsao (dias)")
         ax.grid(alpha=0.3); ax.set_xticks(sorted(d.lead.unique()))
         if col == "BIAS":
             ax.axhline(0, color="grey", lw=0.8, ls=":")
     h = [Line2D([0], [0], color=cores[r], lw=2.5, label=r) for r in regioes]
-    h += [Line2D([0], [0], color="black", linestyle=estilo(m)[0],
-                 marker=estilo(m)[1], label=m) for m in modelos]
+    h += [Line2D([0], [0], color="black", linestyle=est[m]["ls"],
+                 marker=est[m]["mk"], label=m) for m in modelos]
     fig.tight_layout(rect=[0, 0, 1, 0.90])
     fig.legend(handles=h, loc="upper left", bbox_to_anchor=(0.01, 0.965),
                ncol=min(len(h), 7), fontsize=8, framealpha=0.9, borderaxespad=0.3,
@@ -445,6 +461,7 @@ def plota_por_prazo(dfk, col, ylab, titulo, arqsaida, ref1=False):
     if dfk.empty:
         return
     modelos = sorted(dfk.modelo.unique())
+    est = estilos_modelos(modelos)
     leads = sorted(dfk.lead.unique())        # todos os prazos (D+1..D+11)
     n = len(leads); ncol = 3; nrow = int(np.ceil(n / ncol))
     fig, axs = plt.subplots(nrow, ncol, figsize=(4.6 * ncol, 3.4 * nrow),
@@ -452,20 +469,20 @@ def plota_por_prazo(dfk, col, ylab, titulo, arqsaida, ref1=False):
     for k, ld in enumerate(leads):
         ax = axs.ravel()[k]
         for m in modelos:
-            ls, mk = estilo(m)
+            e = est[m]
             sub = dfk[(dfk.lead == ld) & (dfk.modelo == m)].sort_values("limiar_mm")
             if sub.empty:
                 continue
-            ax.plot(sub.limiar_mm, sub[col], ls, marker=mk, markersize=4,
-                    lw=1.8, label=m)
+            ax.plot(sub.limiar_mm, sub[col], e["ls"], marker=e["mk"], color=e["cor"],
+                    markersize=4, lw=1.8, label=m)
         ax.set_title(f"D+{ld}"); ax.set_xlabel("Limiar (mm)"); ax.set_ylabel(ylab)
         ax.grid(alpha=0.3)
         if ref1:
             ax.axhline(1, color="grey", lw=0.8, ls=":")
     for k in range(n, nrow * ncol):
         axs.ravel()[k].axis("off")
-    h = [Line2D([0], [0], color="black", linestyle=estilo(m)[0],
-                marker=estilo(m)[1], label=m) for m in modelos]
+    h = [Line2D([0], [0], color=est[m]["cor"], linestyle=est[m]["ls"],
+                marker=est[m]["mk"], label=m) for m in modelos]
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     fig.legend(handles=h, loc="upper left", bbox_to_anchor=(0.01, 0.99),
                ncol=len(h), fontsize=10, framealpha=0.9, borderaxespad=0.3)

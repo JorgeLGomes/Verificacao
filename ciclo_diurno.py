@@ -49,6 +49,24 @@ import verifica as V
 COR_FONTE = {"jaci": "#1f77b4", "xc50": "#d62728", "ERA5": "black"}
 LS_FONTE = {"jaci": "-", "xc50": "--", "ERA5": ":"}
 MK_FONTE = {"jaci": "o", "xc50": "s", "ERA5": "^"}
+_PAL_EXP = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#8c564b"]
+_MK_EXP = ["o", "s", "^", "D", "v", "P", "X"]
+
+
+def _estilos_fontes(fontes):
+    """Estilo por fonte para N experimentos + ERA5. ERA5 = referencia (preto,
+    pontilhado); cada experimento recebe cor/marcador distintos (linha cheia)."""
+    est = {}; i = 0
+    for f in fontes:
+        if f == "ERA5":
+            est[f] = {"cor": COR_FONTE.get("ERA5", "black"), "ls": ":", "mk": "*"}
+        else:
+            est[f] = {"cor": COR_FONTE.get(f, _PAL_EXP[i % len(_PAL_EXP)]),
+                      "ls": LS_FONTE.get(f, "-"), "mk": MK_FONTE.get(f, _MK_EXP[i % len(_MK_EXP)])}
+            i += 1
+    return est
+
+
 ORDEM_REG = ["Todo", "Continente", "Oceano"]   # demais regioes seguem o shapefile
 REG_DOMINIO = {                                # regioes baseadas no dominio do Eta
     "Todo": "todo o dominio do Eta",
@@ -365,7 +383,9 @@ def plota(df, var, unidade, saida, rcfg=None):
         print("Sem dados para plotar."); return
     regioes = [r for r in ORDEM_REG if r in df.regiao.unique()]
     regioes += [r for r in df.regiao.unique() if r not in regioes]
-    fontes_all = [f for f in ["jaci", "xc50", "ERA5"] if f in df.fonte.unique()]
+    pres = list(df.fonte.unique())
+    fontes_all = [f for f in pres if f != "ERA5"] + (["ERA5"] if "ERA5" in pres else [])
+    est = _estilos_fontes(fontes_all)
     tipo, geoms = _carrega_geoms(rcfg or {})
     dom = _carrega_dominio(saida, var)
     for regiao in regioes:
@@ -383,8 +403,8 @@ def plota(df, var, unidade, saida, rcfg=None):
                 sub = dr[(dr.lead == lead) & (dr.fonte == fonte)].sort_values("hora")
                 if sub.empty:
                     continue
-                ax.plot(sub.hora, sub.valor, LS_FONTE[fonte], marker=MK_FONTE[fonte],
-                        color=COR_FONTE[fonte], lw=1.8, markersize=4, label=fonte)
+                ax.plot(sub.hora, sub.valor, est[fonte]["ls"], marker=est[fonte]["mk"],
+                        color=est[fonte]["cor"], lw=1.8, markersize=4, label=fonte)
             ax.set_title(f"D+{lead}"); ax.set_xlabel("Hora (UTC)")
             ax.set_ylabel(f"{var} ({unidade})"); ax.grid(alpha=0.3)
             ax.set_xticks(sorted(dr.hora.unique()))
@@ -393,8 +413,8 @@ def plota(df, var, unidade, saida, rcfg=None):
         _mapa_regiao(ax_map, tipo, geoms, regiao, dom)
         for k in range(len(leads) + 1, nrow * ncol):
             axs.ravel()[k].axis("off")
-        h = [plt.Line2D([0], [0], color=COR_FONTE[f], linestyle=LS_FONTE[f],
-                        marker=MK_FONTE[f], label=f) for f in fontes_all]
+        h = [plt.Line2D([0], [0], color=est[f]["cor"], linestyle=est[f]["ls"],
+                        marker=est[f]["mk"], label=f) for f in fontes_all]
         fig.tight_layout(rect=[0, 0, 1, 0.94])
         fig.legend(handles=h, loc="upper left", bbox_to_anchor=(0.01, 0.99),
                    ncol=len(h), fontsize=10, framealpha=0.9)

@@ -48,7 +48,22 @@ regioes:
     Sudeste:      [-25.3, -14.2, -53.1, -39.7]
     Sul:          [-33.8, -22.5, -57.7, -48.0]
 
-# modelos comparados (comum a todos os componentes)
+# =====================================================================
+# EXPERIMENTOS comparados (comum a todos os componentes). Pode-se comparar
+# QUANTOS experimentos quiser: basta adicionar entradas aqui (subdir = pasta
+# com as rodadas AAAAMMDDHH desse experimento) e declara-los em cada
+# componente (secao 'modelos' do componente), com o padrao/variavel/unidade.
+# As curvas recebem cor+traco+marcador distintos automaticamente.
+# Exemplo com tres experimentos (E03, E04, OPER):
+#   modelos:
+#     E03:  {subdir: nc_E03,  reader: netcdf}
+#     E04:  {subdir: nc_E04,  reader: netcdf}
+#     OPER: {subdir: nc_oper, reader: netcdf}
+#   e, em cada componente:
+#     modelos:
+#       E03:  {padrao: "tp2m_*.nc", var: null, unidade: K}
+#       E04:  {padrao: "tp2m_*.nc", var: null, unidade: K}
+#       OPER: {padrao: "tp2m_*.nc", var: null, unidade: K}
 modelos:
   jaci: {subdir: nc,      reader: netcdf}
   xc50: {subdir: nc_oper, reader: netcdf}
