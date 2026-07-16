@@ -357,6 +357,17 @@ def _regioes_de(ref, cfg):
     return masks, regd, regd + outras
 
 
+def _filtra_periodo(runs, cfg):
+    """Filtra rodadas (AAAAMMDDHH) pelo intervalo init_de..init_ate (inclusive).
+    Comparacao lexicografica funciona pois as datas sao zero-padded."""
+    de = cfg.get("init_de"); ate = cfg.get("init_ate")
+    if de:
+        runs = [r for r in runs if r >= str(de)]
+    if ate:
+        runs = [r for r in runs if r <= str(ate)]
+    return runs
+
+
 def _tarefas(cfg, comp, max_rodadas):
     T = []
     for modelo, mspec in comp["modelos"].items():
@@ -364,11 +375,13 @@ def _tarefas(cfg, comp, max_rodadas):
                            cfg["modelos"].get(modelo, {}).get("reader", "netcdf"))
         if reader == "binctl":
             base = mspec.get("binctl_base") or cfg.get("binctl_base") or cfg["base"]
-            runs = _lista_rodadas(base, "", cfg.get("init_glob", "*"), max_rodadas)
+            runs = _lista_rodadas(base, "", cfg.get("init_glob", "*"), 0)
         else:
             subdir = mspec.get("subdir") or cfg["modelos"][modelo]["subdir"]
-            runs = _lista_rodadas(cfg["base"], subdir, cfg.get("init_glob", "*"),
-                                  max_rodadas)
+            runs = _lista_rodadas(cfg["base"], subdir, cfg.get("init_glob", "*"), 0)
+        runs = _filtra_periodo(runs, cfg)          # subperiodo (init_de/init_ate)
+        if max_rodadas:
+            runs = runs[:max_rodadas]
         for run in runs:
             T.append((modelo, run))
     return T
@@ -443,6 +456,10 @@ def main(argv=None):
                     help="subconjunto de componentes a processar")
     ap.add_argument("--max-rodadas", type=int, default=0)
     ap.add_argument("--max-lead", type=int, default=0)
+    ap.add_argument("--init-de", default=None,
+                    help="rodada inicial do subperiodo (AAAAMMDDHH), inclusive")
+    ap.add_argument("--init-ate", default=None,
+                    help="rodada final do subperiodo (AAAAMMDDHH), inclusive")
     ap.add_argument("--jobs", type=int, default=1,
                     help="numero de processos paralelos (divide as rodadas). "
                          "0 ou negativo = usa todos os cores disponiveis.")
@@ -457,6 +474,13 @@ def main(argv=None):
 
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+    if args.init_de:
+        cfg["init_de"] = args.init_de
+    if args.init_ate:
+        cfg["init_ate"] = args.init_ate
+    if cfg.get("init_de") or cfg.get("init_ate"):
+        print(f"[info] subperiodo de rodadas: {cfg.get('init_de','inicio')} "
+              f"..{cfg.get('init_ate','fim')}")
     saida = cfg.get("saida", "resultados_uni")
     os.makedirs(saida, exist_ok=True)
 
